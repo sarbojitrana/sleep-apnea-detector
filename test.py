@@ -1,31 +1,38 @@
-
-from src.data import load_data, preprocess_data, encode_data, prepare_data
-from src.model import  train_tuned_model
-from src.evalaute import evaluate_model
-
-df = load_data("data/Sleep_health_and_lifestyle_dataset.csv")
-df = preprocess_data(df)
-
-df, encoders = encode_data(df)
-
-X_train, X_test, y_train, y_test, scaler = prepare_data(df)
+from src.data import FEATURES, build_features, load_dataset, split_data
+from src.evaluate import evaluate_model
+from src.model import train_tuned_model
+from src.pipeline import predict
 
 
-print("Train Shape: ", X_train.shape)
-print("Test Shape: ", X_test.shape)
+def main():
+    X, y = load_dataset()
+    assert len(X) == 374, f"expected 374 rows, got {len(X)}"
+    assert list(X.columns) == FEATURES
+    assert y.sum() == 78, f"expected 78 positive cases, got {y.sum()}"
 
-print("\nSample Features:\n", X_train[:5])
+    X_train, X_test, y_train, y_test = split_data(X, y)
+    model, best_params = train_tuned_model(X_train, y_train)
+    metrics = evaluate_model(model, X_test, y_test)
 
-model, best_params = train_tuned_model(X_train, y_train)
+    assert metrics["recall"] >= 0.75, f"recall regressed to {metrics['recall']:.3f}"
+    assert metrics["accuracy"] >= 0.85, f"accuracy regressed to {metrics['accuracy']:.3f}"
+
+    healthy = predict(model, {"age": 25, "sleep_duration": 8.0, "bmi": "Normal", "heart_rate": 65})
+    at_risk = predict(model, {"age": 60, "sleep_duration": 5.0, "bmi": "Obese",
+                              "heart_rate": 90, "stress": 9, "systolic": 145, "diastolic": 95})
+
+    assert at_risk["probability"] > healthy["probability"]
+    assert at_risk["risk_score"] > healthy["risk_score"]
+    assert build_features({"age": 30}).shape == (1, len(FEATURES))
+
+    print(f"best params      : {best_params}")
+    print(f"test accuracy    : {metrics['accuracy']:.3f}")
+    print(f"test recall      : {metrics['recall']:.3f}")
+    print(f"test f1          : {metrics['f1']:.3f}")
+    print(f"healthy profile  : {healthy['probability']:.1%} apnea probability")
+    print(f"at-risk profile  : {at_risk['probability']:.1%} apnea probability")
+    print("\nAll checks passed.")
 
 
-print("\n Model trained successfully")
-
-print("\n Best Params : ", best_params)
-
-
-acc, report, matrix = evaluate_model(model, X_test, y_test)
-
-print("\nAccuracy:", acc)
-print("\nClassification Report:\n", report)
-print("\nConfusion Matrix:\n", matrix)
+if __name__ == "__main__":
+    main()

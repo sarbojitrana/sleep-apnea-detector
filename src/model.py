@@ -1,22 +1,34 @@
+from sklearn.calibration import CalibratedClassifierCV
+from sklearn.model_selection import GridSearchCV, StratifiedKFold
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import StandardScaler
 from sklearn.svm import SVC
-from sklearn.model_selection import GridSearchCV
 
-# def train_model(X_train, y_train):
-#     model = SVC(kernel="rbf", C=1.0, gamma="scale")         
-#     model.fit(X_train, y_train)
-    
-#     return model
+PARAM_GRID = {
+    "svc__estimator__C": [0.1, 1, 10, 100],
+    "svc__estimator__gamma": ["scale", 0.1, 0.01],
+    "svc__estimator__kernel": ["rbf", "linear"],
+}
 
 
-def train_tuned_model(X_train, y_train):
-    param_grid = {
-        "C": [0.1, 1, 10],
-        "gamma": ["scale", 0.1, 0.01],
-        "kernel": ["rbf", "linear"]
-    }
+def build_model():
+    svm = SVC(class_weight="balanced", random_state=42)
 
-    grid = GridSearchCV(SVC(), param_grid, cv=5, scoring="recall")
+    return Pipeline([
+        ("scaler", StandardScaler()),
+        ("svc", CalibratedClassifierCV(svm, method="sigmoid", cv=5, ensemble=False)),
+    ])
 
+
+def train_tuned_model(X_train, y_train, cv=5, scoring="f1"):
+    grid = GridSearchCV(
+        build_model(),
+        PARAM_GRID,
+        cv=StratifiedKFold(n_splits=cv, shuffle=True, random_state=42),
+        scoring=scoring,
+        n_jobs=-1,
+    )
     grid.fit(X_train, y_train)
 
-    return grid.best_estimator_, grid.best_params_
+    best_params = {k.replace("svc__estimator__", ""): v for k, v in grid.best_params_.items()}
+    return grid.best_estimator_, best_params
