@@ -1,0 +1,4 @@
+gender,age,sleep_duration,bmi,heart_rate,daily_steps,loud_snoring,witnessed_pauses,daytime_sleepiness
+Female,40,7.0,Normal,70,7000,false,false,false
+Female,58,6.0,Overweight,75,7000,true,true,true
+Female,70,7.0,Normal,70,7000,false,false,false

@@ -1,0 +1,16 @@
+# Initial deployment: one demo dashboard. Device API can be deployed separately.
+services:
+  - type: web
+    name: sleepsense
+    runtime: docker
+    plan: free
+    region: singapore
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /_stcore/health
+    autoDeployTrigger: "off"
+    envVars:
+      - key: APP_MODE
+        value: dashboard
+      - key: PORT
+        value: "10000"

@@ -1,131 +1,129 @@
-import pandas as pd
-from sklearn.model_selection import train_test_split
+"""One explicit input contract for the dataset, UI, CLI, and device API."""
+from pathlib import Path
+from numbers import Real
+import math
 
-DATA_PATH = "data/Sleep_health_and_lifestyle_dataset.csv"
+import pandas as pd
+from sklearn.model_selection import StratifiedGroupKFold
+
+ROOT = Path(__file__).resolve().parents[1]
+DATA_PATH = ROOT / "data/Sleep_health_and_lifestyle_dataset.csv"
 TARGET = "Sleep Disorder"
 POSITIVE_LABEL = "Sleep Apnea"
-
 BMI_MAP = {"normal": 0, "normal weight": 0, "overweight": 1, "obese": 2}
 BMI_LABELS = {0: "Normal", 1: "Overweight", 2: "Obese"}
 GENDER_MAP = {"female": 0, "male": 1}
 
-FEATURES = [
-    "Gender",
-    "Age",
-    "Sleep Duration",
-    "Quality of Sleep",
-    "Physical Activity Level",
-    "Stress Level",
-    "BMI Category",
-    "Heart Rate",
-    "Daily Steps",
-    "Systolic",
-    "Diastolic",
-    "Pulse Pressure",
-    "Sleep Efficiency",
-    "Activity Ratio",
-]
-
-DEFAULTS = {
-    "gender": "Female",
-    "age": 40,
-    "sleep_duration": 7.0,
-    "quality_of_sleep": 7,
-    "physical_activity": 60,
-    "stress": 5,
-    "bmi": "Normal",
-    "heart_rate": 70,
-    "daily_steps": 7000,
-    "systolic": 125,
-    "diastolic": 82,
+INPUT_COLUMNS = {
+    "gender": "Gender", "age": "Age", "sleep_duration": "Sleep Duration",
+    "bmi": "BMI Category", "heart_rate": "Heart Rate", "daily_steps": "Daily Steps",
+}
+FEATURES = list(INPUT_COLUMNS.values())
+NUMERIC_LIMITS = {
+    "age": (18, 100), "sleep_duration": (0.5, 16),
+    "heart_rate": (30, 220), "daily_steps": (0, 100000),
+}
+SYMPTOMS = ("loud_snoring", "witnessed_pauses", "daytime_sleepiness")
+# For UI examples only: inference never fills missing readings.
+EXAMPLE_RECORD = {
+    "gender": "Female", "age": 40, "sleep_duration": 7.0,
+    "bmi": "Normal", "heart_rate": 70, "daily_steps": 7000,
 }
 
 
+def _encode(value, mapping, name):
+    if not isinstance(value, str) or value.strip().lower() not in mapping:
+        raise ValueError(f"{name} must be one of: {', '.join(mapping)}")
+    return mapping[value.strip().lower()]
+
+
 def encode_bmi(value):
-    if isinstance(value, str):
-        key = value.strip().lower()
-        if key not in BMI_MAP:
-            raise ValueError(f"unknown BMI category {value!r}, expected one of {sorted(set(BMI_MAP))}")
-        return BMI_MAP[key]
-    value = int(value)
-    if value not in BMI_LABELS:
-        raise ValueError(f"BMI code must be 0 (Normal), 1 (Overweight) or 2 (Obese), got {value}")
-    return value
+    return _encode(value, BMI_MAP, "bmi")
 
 
 def encode_gender(value):
-    if isinstance(value, str):
-        key = value.strip().lower()
-        if key not in GENDER_MAP:
-            raise ValueError(f"unknown gender {value!r}, expected Male or Female")
-        return GENDER_MAP[key]
-    return int(value)
+    return _encode(value, GENDER_MAP, "gender")
+
+
+def validate_record(record):
+    if not isinstance(record, dict):
+        raise ValueError("Expected a JSON object containing the six required inputs.")
+    missing = set(INPUT_COLUMNS) - record.keys()
+    unknown = record.keys() - set(INPUT_COLUMNS) - set(SYMPTOMS)
+    if missing:
+        raise ValueError(f"Missing required inputs: {', '.join(sorted(missing))}")
+    if unknown:
+        raise ValueError(f"Unknown inputs: {', '.join(sorted(unknown))}")
+    clean = dict(record)
+    encode_gender(clean["gender"])
+    clean["gender"] = clean["gender"].strip().title()
+    clean["bmi"] = BMI_LABELS[encode_bmi(clean["bmi"])]
+    for name, (low, high) in NUMERIC_LIMITS.items():
+        value = clean[name]
+        if isinstance(value, bool) or not isinstance(value, Real):
+            raise ValueError(f"{name} must be a finite number, not a missing value or text.")
+        try:
+            finite = math.isfinite(value)
+        except OverflowError:
+            finite = False
+        if not finite:
+            raise ValueError(f"{name} must be a finite number.")
+        if not low <= value <= high:
+            raise ValueError(f"{name} must be between {low} and {high}.")
+        if name in ("age", "daily_steps") and value != int(value):
+            raise ValueError(f"{name} must be a whole number.")
+        clean[name] = float(value)
+    for name in SYMPTOMS:
+        if name in clean and not isinstance(clean[name], bool):
+            raise ValueError(f"{name} must be true or false.")
+    return clean
 
 
 def build_features(record):
-    row = dict(DEFAULTS)
-    row.update({k: v for k, v in record.items() if v is not None})
-
-    systolic = float(row["systolic"])
-    diastolic = float(row["diastolic"])
-    sleep_duration = float(row["sleep_duration"])
-    quality = float(row["quality_of_sleep"])
-    activity = float(row["physical_activity"])
-    steps = float(row["daily_steps"])
-
-    if sleep_duration <= 0:
-        raise ValueError("sleep_duration must be greater than 0")
-
-    return pd.DataFrame([{
-        "Gender": encode_gender(row["gender"]),
-        "Age": float(row["age"]),
-        "Sleep Duration": sleep_duration,
-        "Quality of Sleep": quality,
-        "Physical Activity Level": activity,
-        "Stress Level": float(row["stress"]),
-        "BMI Category": encode_bmi(row["bmi"]),
-        "Heart Rate": float(row["heart_rate"]),
-        "Daily Steps": steps,
-        "Systolic": systolic,
-        "Diastolic": diastolic,
-        "Pulse Pressure": systolic - diastolic,
-        "Sleep Efficiency": quality / sleep_duration,
-        "Activity Ratio": steps / (activity + 1.0),
-    }])[FEATURES]
+    row = validate_record(record)
+    row["gender"] = encode_gender(row["gender"])
+    row["bmi"] = encode_bmi(row["bmi"])
+    return pd.DataFrame([{column: row[key] for key, column in INPUT_COLUMNS.items()}],
+                        columns=FEATURES, dtype=float)
 
 
 def load_dataset(path=DATA_PATH):
-    df = pd.read_csv(path)
-
+    # Preserve literal 'None'. A genuinely blank/unknown target is an error.
+    df = pd.read_csv(path, keep_default_na=False)
+    required = set(FEATURES + [TARGET])
+    if required - set(df.columns):
+        raise ValueError(f"Dataset is missing columns: {sorted(required - set(df.columns))}")
+    if df.empty or not df[TARGET].isin(["None", "Insomnia", POSITIVE_LABEL]).all():
+        raise ValueError("Dataset needs labels None, Insomnia, or Sleep Apnea; blank targets are invalid.")
+    records = df[FEATURES].rename(columns={v: k for k, v in INPUT_COLUMNS.items()}).to_dict("records")
+    X = pd.concat([build_features(record) for record in records], ignore_index=True)
     y = (df[TARGET] == POSITIVE_LABEL).astype(int)
+    if y.nunique() != 2:
+        raise ValueError("Dataset needs both apnea-labelled and other-labelled rows.")
+    return X, y
 
-    bp = df["Blood Pressure"].str.split("/", expand=True)
-    systolic = bp[0].astype(float)
-    diastolic = bp[1].astype(float)
 
-    X = pd.DataFrame({
-        "Gender": df["Gender"].str.lower().map(GENDER_MAP),
-        "Age": df["Age"].astype(float),
-        "Sleep Duration": df["Sleep Duration"].astype(float),
-        "Quality of Sleep": df["Quality of Sleep"].astype(float),
-        "Physical Activity Level": df["Physical Activity Level"].astype(float),
-        "Stress Level": df["Stress Level"].astype(float),
-        "BMI Category": df["BMI Category"].str.lower().map(BMI_MAP),
-        "Heart Rate": df["Heart Rate"].astype(float),
-        "Daily Steps": df["Daily Steps"].astype(float),
-        "Systolic": systolic,
-        "Diastolic": diastolic,
-        "Pulse Pressure": systolic - diastolic,
-        "Sleep Efficiency": df["Quality of Sleep"] / df["Sleep Duration"],
-        "Activity Ratio": df["Daily Steps"] / (df["Physical Activity Level"] + 1.0),
-    })[FEATURES]
-
-    if X.isna().any().any():
-        missing = X.columns[X.isna().any()].tolist()
-        raise ValueError(f"unmapped categorical values in columns: {missing}")
-
-    return X.astype(float), y
+def profile_groups(X):
+    """Group identical observed profiles, regardless of label or Person ID."""
+    return pd.Series(pd.factorize(pd.MultiIndex.from_frame(X))[0], index=X.index)
 
 
 def split_data(X, y, test_size=0.2, random_state=42):
-    return train_test_split(X, y, test_size=test_size, random_state=random_state, stratify=y)
+    # Use one predeclared fold; never search for the split with the best result.
+    folds = round(1 / test_size)
+    if folds < 2:
+        raise ValueError("test_size must produce at least two folds.")
+    train, test = next(StratifiedGroupKFold(folds, shuffle=True, random_state=random_state)
+                       .split(X, y, groups=profile_groups(X)))
+    if y.iloc[train].nunique() < 2 or y.iloc[test].nunique() < 2:
+        raise ValueError("Not enough independent profiles for a two-class held-out split.")
+    return X.iloc[train], X.iloc[test], y.iloc[train], y.iloc[test]
+
+
+def dataset_audit(X, y):
+    grouped = pd.DataFrame({"group": profile_groups(X), "target": y}).groupby("group")["target"]
+    return {
+        "rows": len(X), "positive_rows": int(y.sum()), "unique_profiles": grouped.ngroups,
+        "repeated_rows": len(X) - grouped.ngroups,
+        "conflicting_binary_label_profiles": int((grouped.nunique() > 1).sum()),
+    }

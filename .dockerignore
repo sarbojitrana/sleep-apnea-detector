@@ -1,0 +1,11 @@
+.git
+.venv
+__pycache__
+*.pyc
+models
+.agents
+.codex
+.aws
+.env
+.env.*
+.streamlit/secrets.toml

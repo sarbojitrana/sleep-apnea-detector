@@ -1,0 +1,11 @@
+{
+  "gender": "Female",
+  "age": 40,
+  "sleep_duration": 7.0,
+  "bmi": "Normal",
+  "heart_rate": 70,
+  "daily_steps": 7000,
+  "loud_snoring": false,
+  "witnessed_pauses": false,
+  "daytime_sleepiness": false
+}

@@ -1,85 +1,88 @@
+"""Command-line entry point. Training is always an explicit operation."""
 import argparse
+import json
+from pathlib import Path
 
-from src.data import DATA_PATH, DEFAULTS
+from src.batch import parse_upload, screen_batch
+from src.data import DATA_PATH, SYMPTOMS
 from src.evaluate import format_metrics
 from src.pipeline import MODEL_PATH, load_model, predict, train_pipeline
 
 
 def add_predict_args(parser):
-    parser.add_argument("--gender", choices=["Male", "Female"], default=DEFAULTS["gender"])
-    parser.add_argument("--age", type=int, default=DEFAULTS["age"])
-    parser.add_argument("--sleep", type=float, default=DEFAULTS["sleep_duration"])
-    parser.add_argument("--quality", type=int, default=DEFAULTS["quality_of_sleep"])
-    parser.add_argument("--activity", type=int, default=DEFAULTS["physical_activity"])
-    parser.add_argument("--stress", type=int, default=DEFAULTS["stress"])
-    parser.add_argument("--bmi", choices=["Normal", "Overweight", "Obese"], default=DEFAULTS["bmi"])
-    parser.add_argument("--heart", type=int, default=DEFAULTS["heart_rate"])
-    parser.add_argument("--steps", type=int, default=DEFAULTS["daily_steps"])
-    parser.add_argument("--systolic", type=int, default=DEFAULTS["systolic"])
-    parser.add_argument("--diastolic", type=int, default=DEFAULTS["diastolic"])
+    parser.add_argument("--gender", choices=["Male", "Female"], required=True)
+    parser.add_argument("--age", type=int, required=True)
+    parser.add_argument("--sleep", dest="sleep_duration", type=float, required=True, help="hours per night")
+    parser.add_argument("--bmi", choices=["Normal", "Overweight", "Obese"], required=True)
+    parser.add_argument("--heart", dest="heart_rate", type=float, required=True, help="resting pulse, bpm")
+    parser.add_argument("--steps", dest="daily_steps", type=int, required=True, help="steps per day")
+    for symptom in SYMPTOMS:
+        parser.add_argument("--" + symptom.replace("_", "-"), action="store_true")
+    parser.add_argument("--json", action="store_true", help="emit a machine-readable result")
 
 
 def run_train(args):
-    print(f"Training on {args.data} ...")
     _, metrics = train_pipeline(data_path=args.data, model_path=args.model)
-
-    print(f"\nBest parameters: {metrics['best_params']}")
-    print(f"Cross-validated F1: {metrics['cv_f1_mean']:.3f} (+/- {metrics['cv_f1_std']:.3f})\n")
-    print("Held-out test set")
-    print("-" * 60)
+    print("RESEARCH DATASET EVALUATION — not clinical performance")
+    print(f"Dataset audit: {metrics['dataset']}")
+    print(f"Best parameters: {metrics['best_params']}")
+    print(f"Training / holdout rows: {metrics['training']['rows']} / {metrics['holdout']['rows']}")
+    nested = metrics["nested_development_cv"]
+    print(f"Nested development CV F2: {nested['f2_mean']:.3f} ± {nested['f2_std']:.3f}")
+    print("\nFixed grouped holdout (raw classifier):")
     print(format_metrics(metrics))
-    print(f"\nModel saved to {args.model}")
+    print(f"\nModel: {args.model}")
+    print(f"Report: {Path(args.model).with_suffix('.report.json')}")
 
 
 def run_predict(args):
-    model = load_model(args.model)
+    record = {key: getattr(args, key) for key in
+              ("gender", "age", "sleep_duration", "bmi", "heart_rate", "daily_steps", *SYMPTOMS)}
+    result = predict(load_model(args.model), record)
+    if args.json:
+        print(json.dumps(result, indent=2, allow_nan=False))
+        return
+    print(f"Screening result: {result['status'].replace('_', ' ')}")
+    print(result["next_step"])
+    for item in result["reported_symptoms"] + result["warnings"]:
+        print(f"- {item}")
+    print(f"\n{result['disclaimer']}")
 
-    result = predict(model, {
-        "gender": args.gender,
-        "age": args.age,
-        "sleep_duration": args.sleep,
-        "quality_of_sleep": args.quality,
-        "physical_activity": args.activity,
-        "stress": args.stress,
-        "bmi": args.bmi,
-        "heart_rate": args.heart,
-        "daily_steps": args.steps,
-        "systolic": args.systolic,
-        "diastolic": args.diastolic,
-    })
 
-    print("\n=== SLEEP APNEA SCREENING ===")
-    print(f"Prediction  : {'LIKELY APNEA' if result['apnea'] else 'NO APNEA'}")
-    print(f"Confidence  : {result['probability']:.1%}")
-    print(f"Risk score  : {result['risk_score']}/100 ({result['severity']})")
-
-    if result["risk_factors"]:
-        print("Risk factors:")
-        for factor in result["risk_factors"]:
-            print(f"  - {factor}")
-
-    if result["disagreement"]:
-        print("\nWarning: high risk indicators present despite a negative prediction.")
-
-    print("\nScreening aid only. Not a diagnosis; confirm with a sleep study.")
+def run_batch(args):
+    path = Path(args.input)
+    if path.stat().st_size > 1_000_000:
+        raise ValueError("Upload must be at most 1 MB.")
+    records = parse_upload(path.read_bytes(), path.suffix)
+    results = screen_batch(load_model(args.model), records)
+    text = json.dumps(results, indent=2, allow_nan=False) + "\n"
+    if args.output:
+        Path(args.output).write_text(text)
+    else:
+        print(text, end="")
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Sleep apnea screening from lifestyle and vitals data.")
+    parser = argparse.ArgumentParser(description="IoT-friendly sleep apnea risk screening research prototype.")
     sub = parser.add_subparsers(dest="command", required=True)
-
-    train = sub.add_parser("train", help="train the SVM and save it to disk")
-    train.add_argument("--data", default=DATA_PATH)
-    train.add_argument("--model", default=MODEL_PATH)
+    train = sub.add_parser("train", help="train, evaluate and save a versioned artifact")
+    train.add_argument("--data", type=Path, default=DATA_PATH)
+    train.add_argument("--model", type=Path, default=MODEL_PATH)
     train.set_defaults(func=run_train)
-
-    pred = sub.add_parser("predict", help="screen one person using the saved model")
-    pred.add_argument("--model", default=MODEL_PATH)
+    pred = sub.add_parser("predict", help="screen a complete set of measured inputs")
+    pred.add_argument("--model", type=Path, default=MODEL_PATH)
     add_predict_args(pred)
     pred.set_defaults(func=run_predict)
-
+    batch = sub.add_parser("batch", help="screen up to 100 daily summaries from CSV or JSON")
+    batch.add_argument("--model", type=Path, default=MODEL_PATH)
+    batch.add_argument("--input", required=True)
+    batch.add_argument("--output", help="optional JSON output path")
+    batch.set_defaults(func=run_batch)
     args = parser.parse_args()
-    args.func(args)
+    try:
+        args.func(args)
+    except (ValueError, FileNotFoundError, OSError) as error:
+        parser.exit(2, f"Error: {error}\n")
 
 
 if __name__ == "__main__":
