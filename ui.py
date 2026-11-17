@@ -5,11 +5,13 @@ from pathlib import Path
 
 import pandas as pd
 import streamlit as st
+import io
 
 from src.batch import MAX_UPLOAD_BYTES, parse_upload, screen_batch
 from src.data import EXAMPLE_RECORD, INPUT_COLUMNS, ROOT
 from src.pipeline import MODEL_PATH, load_model, predict
 from src.utils import DISCLAIMER
+from src.oximetry import SENSOR_MODEL_PATH, load_sensor_model, screen_recording
 
 st.set_page_config(page_title="SleepSense · Sleep apnea screening", page_icon="🌙", layout="wide")
 st.title("SleepSense")
@@ -44,12 +46,12 @@ with st.sidebar:
     st.caption("Inputs and screening history are kept in this session only by this application. "
                "Downloads are saved only when you request them.")
     if st.button("Clear session results", width="stretch"):
-        for key in ("single_result", "batch_results", "history"):
+        for key in ("single_result", "batch_results", "history", "oxygen_result"):
             st.session_state.pop(key, None)
         st.rerun()
 
-screen_tab, import_tab, history_tab, model_tab = st.tabs(
-    ["Screening", "Device import", "Session history", "Model & evidence"])
+screen_tab, import_tab, history_tab, model_tab, oxygen_tab = st.tabs(
+    ["Screening", "Device import", "Session history", "Model & evidence", "Overnight SpO₂ · research"])
 
 STATUS_LABELS = {
     "raised_signal": "Raised screening signal",
@@ -226,6 +228,71 @@ with model_tab:
         st.json(metadata)
     st.download_button("Download model report", json.dumps(metadata, indent=2),
                        file_name="model-report.json", mime="application/json")
+
+with oxygen_tab:
+    st.subheader("Experimental overnight oxygen analysis")
+    st.warning("Research model trained on 30 stroke-unit patients. It classifies oxygen windows associated "
+               "with annotated apnea/hypopnea; it does not establish whether a person has sleep apnea.")
+    st.write("Uses only SpO₂ percentages from an optical oximeter, sampled once per second. "
+             "No EEG, ECG, ECG-derived heart rate, or respiratory rate is used. "
+             "Each result covers a completed 60-second window.")
+    st.markdown("[Kaggle dataset](https://www.kaggle.com/datasets/menes97/osasud-sleep-apnea-original-parquet) · "
+                "[Original publication](https://doi.org/10.1038/s41597-022-01272-y)")
+
+    @st.cache_resource
+    def get_oxygen_model(path, modified_ns):
+        return load_sensor_model(path)
+
+    oxygen_bundle = None
+    try:
+        oxygen_bundle = get_oxygen_model(str(SENSOR_MODEL_PATH), SENSOR_MODEL_PATH.stat().st_mtime_ns)
+    except (OSError, ValueError):
+        st.info("Train the separate oxygen model to enable this research mode.")
+        st.code("python sensor.py download\npython sensor.py train", language="bash")
+    if oxygen_bundle is not None:
+        study = oxygen_bundle["metadata"]["report"]
+        metrics_oxy = study["experiments"]["oximetry_features"]["holdout"]
+        coverage = study["quality"]["holdout"]
+        a, b, c = st.columns(3)
+        a.metric("Held-out window accuracy", f"{metrics_oxy['accuracy']:.1%}")
+        b.metric("Held-out window sensitivity", f"{metrics_oxy['recall']:.1%}")
+        c.metric("Usable-window coverage", f"{coverage['coverage']:.1%}")
+        st.caption("Scores apply only to usable windows from six held-out patients. "
+                   "Oxygen-pattern features are compared with a mean-oxygen baseline in the report. "
+                   "These scores are not comparable to the lifestyle model's person-label scores.")
+        total_positive = coverage["all_positive_windows"]
+        flagged_positive = metrics_oxy["confusion_matrix"][1][1]
+        st.caption(f"Including unusable data, {flagged_positive} of {total_positive} annotated positive "
+                   f"windows were flagged ({flagged_positive / total_positive:.1%}). "
+                   "Unusable data is never classified as normal.")
+        st.write("Upload a CSV with exactly **elapsed_seconds,spo2**. Supply consecutive whole seconds "
+                 "at 1 Hz, at least 60 samples, up to 12 hours and 1 MB. Leave missing oxygen readings "
+                 "blank while retaining their timestamp. Do not resample a low-rate device by repeating readings.")
+        st.caption("A window needs at least 90% valid samples and no missing run longer than five seconds. "
+                   "Unusable windows receive ‘Insufficient evidence’. Raised windows are not apnea counts or AHI.")
+        oxygen_upload = st.file_uploader("One-second SpO₂ recording", type=["csv"], key="oxygen_upload")
+        if st.button("Analyze oxygen recording", disabled=oxygen_upload is None, key="analyze_oxygen"):
+            st.session_state.pop("oxygen_result", None)
+            try:
+                if oxygen_upload.size > MAX_UPLOAD_BYTES:
+                    raise ValueError("Recording must be at most 1 MB.")
+                frame = pd.read_csv(io.BytesIO(oxygen_upload.getvalue()))
+                st.session_state["oxygen_result"] = screen_recording(oxygen_bundle, frame)
+            except (ValueError, pd.errors.ParserError) as error:
+                st.error(str(error))
+        if "oxygen_result" in st.session_state:
+            oxygen_result = st.session_state["oxygen_result"]
+            st.dataframe(pd.DataFrame(oxygen_result["windows"]), hide_index=True, width="stretch")
+            st.write(f"Raised windows: {oxygen_result['raised_windows']}; "
+                     f"unusable windows: {oxygen_result['abstained_windows']}; "
+                     f"trailing samples not scored: {oxygen_result['trailing_samples_not_scored']}.")
+            st.caption(oxygen_result["disclaimer"])
+            st.download_button("Download oxygen analysis", json.dumps(oxygen_result, indent=2),
+                               file_name="oxygen-window-analysis.json", mime="application/json")
+        with st.expander("Patient-separated sensor evaluation"):
+            st.json(study)
+        st.download_button("Download sensor model report", json.dumps(oxygen_bundle["metadata"], indent=2),
+                           file_name="oximetry-model-report.json", mime="application/json")
 
 st.divider()
 st.caption(DISCLAIMER)

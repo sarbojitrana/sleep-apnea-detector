@@ -9,3 +9,4 @@ models
 .env
 .env.*
 .streamlit/secrets.toml
+data/osasud

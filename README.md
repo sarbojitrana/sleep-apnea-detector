@@ -2,7 +2,15 @@
 
 An SVM-based **first-check research application** using measurements that can be entered at home or obtained from everyday sensors. The intended device is an affordable screening aid that encourages appropriate follow-up.
 
-The application uses **six inputs**: age, the dataset's gender category, BMI category, sleep duration, resting pulse, and daily steps. It requires no EEG, ECG, blood-pressure cuff, stress rating, or subjective sleep-quality score.
+**New: overnight SpO₂ research mode.** A separate sensor SVM uses optical oxygen measurements from a verified Kaggle mirror of the published OSASUD dataset: 30 patients and approximately 267 hours. It uses no EEG/ECG inputs. On six held-out patients, it achieves 79.4% accuracy and 77.9% sensitivity on usable 60-second windows, with 77.3% coverage. This is a different task from the lifestyle model below. See [dataset selection and measured results](docs/dataset-selection.md) and the [full sensor evaluation](docs/osasud-evaluation.json).
+
+```bash
+python sensor.py download
+python sensor.py train
+# Then use the Overnight SpO₂ · research tab in the dashboard.
+```
+
+The lifestyle screening mode uses **six inputs**: age, the dataset's gender category, BMI category, sleep duration, resting pulse, and daily steps. It requires no EEG, ECG, blood-pressure cuff, stress rating, or subjective sleep-quality score. The independent oxygen mode uses only SpO₂ readings.
 
 **Current capability:** screening for patterns associated with the *Sleep Apnea* label in the bundled Kaggle lifestyle dataset. The dataset contains no overnight waveforms, SpO₂, airflow, or event timestamps. This application cannot detect individual breathing pauses, compute AHI, diagnose apnea, or establish clinical severity. Real device screening needs separately validated data.
 
@@ -27,7 +35,7 @@ uv pip install --python .venv/bin/python -r requirements.lock
 .venv/bin/streamlit run ui.py
 ```
 
-Training is explicit. The dashboard and API **never train on startup**. Training writes a versioned model to `models/apnea_svm.joblib` and a readable report to `models/apnea_svm.report.json`. Both are local generated files excluded from Git. Old fourteen-feature artifacts must be retrained.
+Training is explicit. The dashboard and API **never train on startup**. Lifestyle training writes a versioned model to `models/apnea_svm.joblib` and a readable report to `models/apnea_svm.report.json`. Sensor training writes its separate `models/oximetry_svm.joblib` and report. Artifacts are local generated files excluded from Git. Old fourteen-feature artifacts must be retrained.
 
 `requirements.txt` declares supported dependency ranges; `requirements.lock` pins the tested production environment, including transitive dependencies. The lock was generated on Linux with Python 3.12; regenerate and retest for another platform. Saved models require the exact scikit-learn version that trained them.
 

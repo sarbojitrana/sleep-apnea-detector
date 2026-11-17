@@ -9,6 +9,11 @@ from src.pipeline import MODEL_PATH
 
 @unittest.skipUnless(MODEL_PATH.exists(), "Train a model with python app.py train before UI tests.")
 class DashboardTests(unittest.TestCase):
+    def test_oxygen_research_tab_loads(self):
+        app = AppTest.from_file(str(ROOT / "ui.py"), default_timeout=20).run()
+        self.assertFalse(app.exception)
+        self.assertIn("Overnight SpO₂ · research", [tab.label for tab in app.tabs])
+
     def test_required_inputs_and_example_screening(self):
         app = AppTest.from_file(str(ROOT / "ui.py"), default_timeout=20).run()
         self.assertFalse(app.exception)

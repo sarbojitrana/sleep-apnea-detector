@@ -13,4 +13,6 @@ jobs:
           cache: pip
       - run: python -m pip install -r requirements-dev.txt
       - run: python app.py train
+      - run: python sensor.py download
+      - run: python sensor.py train
       - run: python test.py

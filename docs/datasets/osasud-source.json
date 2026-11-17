@@ -1,0 +1,40 @@
+{
+  "kaggle_ref": "menes97/osasud-sleep-apnea-original-parquet",
+  "kaggle_url": "https://www.kaggle.com/datasets/menes97/osasud-sleep-apnea-original-parquet",
+  "kaggle_version": 1,
+  "kaggle_file": "osasud_1hz.parquet",
+  "bytes": 6338669,
+  "sha256": "6a685bac8a65bd52f986ab8d66547f49d73082d7555250f4e54d69c00a8a44b9",
+  "publication": "https://doi.org/10.1038/s41597-022-01272-y",
+  "original_data": "https://doi.org/10.6084/m9.figshare.19214289.v1",
+  "publisher_metadata": "https://api.figshare.com/v2/articles/19214289",
+  "license": "CC0",
+  "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+  "original_file": "dataset_OSAS.pickle",
+  "original_file_bytes": 3280142234,
+  "original_file_md5": "b9ed560f4abf6100ce02cfc7cb0c121f",
+  "authors": [
+    "Andrea Bernardini",
+    "Andrea Brunello",
+    "Gian Luigi Gigli",
+    "Angelo Montanari",
+    "Nicola Saccomanno"
+  ],
+  "acquisition_population": "30 patients admitted to the stroke unit of Udine University Hospital, Italy.",
+  "mirror_verification": "Downloaded pinned Parquet and schema report; checked counts, ranges, identifiers and annotation consistency against mirror report and original publication. Publisher MD5 matches the converter's stated original checksum. Did not independently repeat the 3.28 GB pickle-to-Parquet conversion.",
+  "model_input_channels": [
+    "SpO2(%)"
+  ],
+  "label_source": "event; any annotated apnea/hypopnea second in the window",
+  "excluded_predictors": [
+    "HR(bpm): ECG-derived",
+    "RR(rpm): ECG-derived",
+    "PVCs(/min): ECG-derived",
+    "anomaly: target alias",
+    "event: target",
+    "patient: grouping only",
+    "timestamp_datetime: ordering only",
+    "EEG and ECG waveforms",
+    "PSG-derived channels"
+  ]
+}

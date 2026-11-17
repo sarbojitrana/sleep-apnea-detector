@@ -7,3 +7,4 @@ models/
 !.env.example
 .streamlit/secrets.toml
 results.json
+data/osasud/

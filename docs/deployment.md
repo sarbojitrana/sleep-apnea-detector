@@ -7,7 +7,7 @@ The initial deployment is one Streamlit dashboard, configured by the repository'
 1. Publish the reviewed source, including `render.yaml`, `Dockerfile`, `requirements.lock`, and the bundled dataset, to the GitHub repository.
 2. Connect Render to that repository. Create a Blueprint from its deployment branch, or create a Docker Web Service using the settings below.
 3. Keep the initial service on the **Free** plan. The Blueprint selects Singapore, runs `APP_MODE=dashboard`, and uses `/_stcore/health` for health checks.
-4. Let the image build finish. It installs the locked dependencies and explicitly trains the SVM during the build. The model is baked into the image, so a restart needs neither training nor a writable persistent disk.
+4. Let the image build finish. It installs the locked dependencies, downloads the pinned 6.4 MB public Kaggle oxygen file with checksum verification, and explicitly trains the lifestyle and experimental oxygen SVMs during the build. Both models are baked into the image, so a restart needs neither training nor a writable persistent disk. The oxygen model remains labelled as research; see the dataset-selection report for quality coverage and limitations.
 5. Wait for Render to report the deployment live, then verify its actual returned URL, the dashboard screening form, the example import, and the model report. Do not infer a URL from the service name.
 
 Automatic redeployment is disabled in the Blueprint. After future source changes pass CI, trigger a reviewed deployment manually.
@@ -56,6 +56,8 @@ docker run --rm -p 127.0.0.1:8000:8000 \
 ```
 
 The dashboard does not require this API service and does not send its inputs to a second backend. The optional API remains independently authenticated.
+
+For an optical oxygen device, use the same bearer-authenticated service at `POST /v1/oximetry/screen`, sending `{"spo2_samples": [...]}` with exactly 60 samples at 1 Hz and `null` for missing readings. This is the experimental sensor model described in the dataset-selection report; its output is a window signal, not an apnea count or diagnosis.
 
 ## Hosted data and access
 

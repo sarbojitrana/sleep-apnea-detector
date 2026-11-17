@@ -10,6 +10,8 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from src.pipeline import MODEL_PATH, load_model, predict
+from src.oximetry import (SENSOR_DISCLAIMER, SENSOR_MODEL_PATH, load_sensor_model,
+                          predict_window)
 
 MAX_REQUEST_BYTES = 16_384
 
@@ -27,7 +29,29 @@ class ScreeningInput(BaseModel):
     daytime_sleepiness: bool = False
 
 
-def create_app(model_path=None, api_key=None):
+class OximetryInput(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True, allow_inf_nan=False)
+    spo2_samples: list[float | None] = Field(min_length=60, max_length=60,
+        description="Exactly 60 consecutive one-second optical oxygen percentages; null means a missing reading.")
+
+
+async def validated_body(request, schema):
+    if request.headers.get("content-type", "").split(";")[0].strip().lower() != "application/json":
+        raise HTTPException(415, "Use application/json.")
+    body = bytearray()
+    async for chunk in request.stream():
+        body.extend(chunk)
+        if len(body) > MAX_REQUEST_BYTES:
+            raise HTTPException(413, "Request exceeds 16 KB.")
+    try:
+        return schema.model_validate_json(body)
+    except ValidationError as error:
+        details = [{"field": ".".join(map(str, e["loc"])), "message": e["msg"]}
+                   for e in error.errors()]
+        raise HTTPException(422, detail=details) from error
+
+
+def create_app(model_path=None, api_key=None, sensor_model_path=None):
     bearer = HTTPBearer(auto_error=False)
 
     @asynccontextmanager
@@ -38,6 +62,8 @@ def create_app(model_path=None, api_key=None):
         application.state.api_key = key
         application.state.bundle = load_model(
             Path(model_path or os.environ.get("APNEA_MODEL_PATH", MODEL_PATH)))
+        sensor_path = Path(sensor_model_path or os.environ.get("APNEA_SENSOR_MODEL_PATH", SENSOR_MODEL_PATH))
+        application.state.sensor_bundle = load_sensor_model(sensor_path) if sensor_path.is_file() else None
         yield
 
     application = FastAPI(title="Sleep Apnea Screening Prototype", version="2.0.0", lifespan=lifespan,
@@ -62,21 +88,29 @@ def create_app(model_path=None, api_key=None):
             "application/json": {"schema": ScreeningInput.model_json_schema()}}}
     })
     async def screen(request: Request):
-        if request.headers.get("content-type", "").split(";")[0].strip().lower() != "application/json":
-            raise HTTPException(415, "Use application/json.")
-        body = bytearray()
-        async for chunk in request.stream():
-            body.extend(chunk)
-            if len(body) > MAX_REQUEST_BYTES:
-                raise HTTPException(413, "Request exceeds 16 KB.")
-        try:
-            record = ScreeningInput.model_validate_json(body)
-        except ValidationError as error:
-            # Do not echo health input values in error messages.
-            details = [{"field": ".".join(map(str, e["loc"])), "message": e["msg"]}
-                       for e in error.errors()]
-            raise HTTPException(422, detail=details) from error
+        record = await validated_body(request, ScreeningInput)
         return predict(request.app.state.bundle, record.model_dump())
+
+    def oxygen_bundle(request):
+        bundle = request.app.state.sensor_bundle
+        if bundle is None:
+            raise HTTPException(503, "Oximetry research model is not installed on this service.")
+        return bundle
+
+    @application.get("/v1/oximetry/model", dependencies=[Depends(authenticate)])
+    def oxygen_model_card(request: Request):
+        return oxygen_bundle(request)["metadata"]
+
+    @application.post("/v1/oximetry/screen", dependencies=[Depends(authenticate)], openapi_extra={
+        "requestBody": {"required": True, "content": {
+            "application/json": {"schema": OximetryInput.model_json_schema()}}}
+    })
+    async def oxygen_screen(request: Request):
+        record = await validated_body(request, OximetryInput)
+        bundle = oxygen_bundle(request)
+        return {**predict_window(bundle, record.spo2_samples),
+                "model_id": bundle["metadata"]["model_id"], "window_seconds": 60,
+                "sample_rate_hz": 1, "disclaimer": SENSOR_DISCLAIMER}
 
     return application
 

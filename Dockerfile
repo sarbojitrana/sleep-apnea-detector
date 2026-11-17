@@ -14,10 +14,12 @@ COPY --chown=appuser:appuser src ./src
 COPY --chown=appuser:appuser data ./data
 COPY --chown=appuser:appuser examples ./examples
 COPY --chown=appuser:appuser .streamlit ./.streamlit
-COPY --chown=appuser:appuser app.py api.py ui.py ./
+COPY --chown=appuser:appuser app.py api.py ui.py sensor.py ./
 USER appuser
 # Explicit build-time training; no training on startup or requests.
-RUN python app.py train
+RUN python app.py train \
+    && python sensor.py download \
+    && python sensor.py train
 EXPOSE 8501
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
     CMD ["python", "-m", "src.hosting", "healthcheck"]
