@@ -13,7 +13,8 @@ from src.pipeline import MODEL_PATH, load_model, predict
 from src.oximetry import (SENSOR_DISCLAIMER, SENSOR_MODEL_PATH, load_sensor_model,
                           predict_window)
 from src.combined import COMBINED_MODEL_PATH, load_combined_model, predict_combined
-from src.predictor import PREDICTOR_PATH, load_predictor, predict as predict_current
+from src.predictor import (PREDICTOR_PATH, load_predictor, predict as predict_current,
+                           predict_sensor_window)
 
 MAX_REQUEST_BYTES = 16_384
 
@@ -50,6 +51,21 @@ class PredictorInput(CombinedInput):
     spo2_std: float = Field(ge=0, le=50)
     sleep_duration: float | None = Field(default=None, ge=0.5, le=16,
         description="Context only; not a trained feature.")
+
+
+class SensorChannels(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True, allow_inf_nan=False)
+    spo2: list[float | None] = Field(min_length=60, max_length=60)
+    heart_rate: list[float | None] = Field(min_length=60, max_length=60)
+    respiratory_rate: list[float | None] = Field(min_length=60, max_length=60)
+    perfusion_index: list[float | None] = Field(min_length=60, max_length=60)
+
+
+class SensorWindowInput(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True, allow_inf_nan=False)
+    channels: SensorChannels = Field(description="Synchronized samples from the same completed 60-second interval, one per second. Null represents a missing sample.")
+    sleep_duration: float | None = Field(default=None, ge=0.5, le=16,
+                                        description="Context only; not a trained feature.")
 
 
 async def validated_body(request, schema):
@@ -89,7 +105,7 @@ def create_app(model_path=None, api_key=None, sensor_model_path=None, combined_m
             raise RuntimeError("No screening model is installed. Run python predictor.py train.")
         yield
 
-    application = FastAPI(title="Sleep Apnea Screening Prototype", version="4.0.0", lifespan=lifespan,
+    application = FastAPI(title="Sleep Apnea Screening Prototype", version="4.1.0", lifespan=lifespan,
                           description="Research screening only; no apnea diagnosis or real-time event detection.")
 
     def authenticate(request: Request,
@@ -154,6 +170,18 @@ def create_app(model_path=None, api_key=None, sensor_model_path=None, combined_m
         record = await validated_body(request, PredictorInput)
         try:
             return predict_current(current_predictor(request), record.model_dump(exclude_none=True))
+        except ValueError as error:
+            raise HTTPException(422, detail=str(error)) from error
+
+    @application.post("/v3/window", dependencies=[Depends(authenticate)], openapi_extra={
+        "requestBody": {"required": True, "content": {
+            "application/json": {"schema": SensorWindowInput.model_json_schema()}}}
+    })
+    async def current_sensor_window(request: Request):
+        record = await validated_body(request, SensorWindowInput)
+        try:
+            return predict_sensor_window(current_predictor(request), record.channels.model_dump(),
+                                         record.sleep_duration)
         except ValueError as error:
             raise HTTPException(422, detail=str(error)) from error
 

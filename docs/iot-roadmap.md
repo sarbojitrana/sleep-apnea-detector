@@ -17,8 +17,8 @@ No EEG or ECG waveform is required as an input. All six sensor summaries must de
 
 1. Choose a microcontroller that can transmit JSON, and an optical pulse sensor with a documented sampling interface.
 2. Obtain reliable oxygen, pulse, breathing-rate, and perfusion measurements, including quality checks. These extraction/calibration algorithms are outside this repository.
-3. Average all four quantities over the same completed 60-second interval, and also calculate minimum and population standard deviation of valid SpO₂ readings in that interval.
-4. Send `examples/predictor_measurements.json` format to the authenticated `/v3/screen` endpoint over a trusted connection. Optional sleep duration is context only.
+3. Collect all four channels over the same completed 60-second interval, with one sample per second and explicit missing values. The authenticated `/v3/window` endpoint now applies training-equivalent quality checks and computes the six summaries. It cannot verify sensor timing or calibration; the device must ensure both.
+4. Send these synchronized arrays in a `channels` object to `/v3/window`, or compute the six summaries on the gateway and send `examples/predictor_measurements.json` format to `/v3/screen`. Optional sleep duration is context only.
 5. Handle `insufficient_evidence` and `null` screening flags explicitly. An unsupported or missing input is not a negative result.
 6. Display the next step and model ID; preserve the distinction between example data and measured data.
 

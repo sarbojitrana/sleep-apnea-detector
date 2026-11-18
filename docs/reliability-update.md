@@ -1,6 +1,6 @@
 # Duration context and the improved combined predictor
 
-The default interface now contains only parameter fields and one Predict action. The four existing sensor quantities remain trained inputs. Two jointly recorded oxygen summaries were added because a mean alone discards desaturation dynamics:
+The six-input predictor introduced in this update retains the four existing sensor quantities. The later [research/UI update](research-review.md) restores metrics, demo controls, and history without changing its fitted model. Two jointly recorded oxygen summaries were added because a mean alone discards desaturation dynamics:
 
 - Average SpO₂, lowest SpO₂, and SpO₂ standard deviation over the same 60 seconds.
 - Mean heart rate, breathing rate, and perfusion index over those 60 seconds.
@@ -66,7 +66,7 @@ All results, folds, thresholds, selected parameters and quality coverage are in 
 
 ## Interface and use
 
-The page has seven fields and one button. There are no example toggles, metrics panels, history, mode selectors, or download controls. A short screening limitation remains; details live in repository reports and the authenticated model endpoint.
+The form has seven fields and one Predict action. The subsequent interface update adds example/random prefill buttons, measured model performance, and session history with CSV export. A short screening limitation remains. The metrics are read from the loaded model's report; demo data is never included in them.
 
 ```bash
 python predictor.py train --report docs/predictor-evaluation.json

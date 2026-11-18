@@ -16,8 +16,8 @@ from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 from sklearn.svm import SVC
 
-from src.combined import (FEATURES as CORE_FEATURES, build_combined_features,
-                          prepare_combined_windows, DISCLAIMER)
+from src.combined import (FEATURES as CORE_FEATURES, LIMITS, average_sensor_window,
+                          build_combined_features, prepare_combined_windows, DISCLAIMER)
 from src.data import ROOT
 from src.pipeline import _atomic_save
 from src.sensor_training import (RAW_PATH, KAGGLE_REF, KAGGLE_VERSION, EXPECTED_SHA256,
@@ -73,8 +73,11 @@ def build_features(record):
         row[name] = float(value)
     if row["spo2_min"] > row["spo2"]:
         raise ValueError("Lowest SpO₂ cannot exceed average SpO₂.")
+    return pd.DataFrame([row], columns=FEATURES), sleep_context(record.get("sleep_duration"))
+
+
+def sleep_context(duration):
     context = {}
-    duration = record.get("sleep_duration")
     if duration is not None:
         if isinstance(duration, (bool, np.bool_)) or not isinstance(duration, Real):
             raise ValueError("Sleep duration must be a number of hours.")
@@ -85,7 +88,44 @@ def build_features(record):
         if not valid:
             raise ValueError("Sleep duration must be between 0.5 and 16 hours.")
         context["sleep_duration"] = float(duration)
-    return pd.DataFrame([row], columns=FEATURES), context
+    return context
+
+
+def summarize_sensor_window(signals):
+    """Apply training-equivalent quality checks and six summaries to four 1 Hz channels."""
+    if not isinstance(signals, dict) or set(signals) != set(CORE_FEATURES):
+        raise ValueError("Provide all four synchronized sensor channels.")
+    for values in signals.values():
+        if not isinstance(values, (list, tuple, np.ndarray)) or len(values) != 60:
+            raise ValueError("Each sensor channel must contain 60 one-second readings.")
+        if any(value is not None and (isinstance(value, (bool, np.bool_))
+                                     or not isinstance(value, Real)) for value in values):
+            raise ValueError("Sensor readings must be measured numbers or null for missing samples.")
+    core, quality = average_sensor_window(signals)
+    if core is None:
+        return None, quality
+    oxygen = np.asarray(signals["spo2"], dtype=float)
+    low, high = LIMITS["spo2"]
+    valid = np.isfinite(oxygen) & (oxygen >= low) & (oxygen <= high)
+    record = {**core.iloc[0].to_dict(), "spo2_min": float(oxygen[valid].min()),
+              "spo2_std": float(oxygen[valid].std())}
+    return record, quality
+
+
+def predict_sensor_window(bundle, signals, sleep_duration=None):
+    context = sleep_context(sleep_duration)
+    record, quality = summarize_sensor_window(signals)
+    window = {"window_seconds": 60, "sample_rate_hz": 1, "signal_quality": quality,
+              "sensor_features": record}
+    if record is None:
+        return {**window, "model_id": bundle["metadata"]["model_id"],
+                "context": context, "context_not_used_by_model": list(context),
+                "disclaimer": DISCLAIMER, "model_status": "research_not_externally_validated",
+                "status": "insufficient_evidence", "screen_positive": None,
+                "label": "Unable to assess these measurements", "decision_margin": None,
+                "warnings": ["A sensor channel failed the 90% valid-sample or five-second gap requirement."],
+                "next_step": "Check sensor contact and collect a new synchronized interval. Poor-quality data is not a negative screening result."}
+    return {**predict(bundle, {**record, **context}), **window}
 
 
 def threshold_for_recall(labels, scores, target=TARGET_RECALL):

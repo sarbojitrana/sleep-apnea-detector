@@ -16,7 +16,9 @@ The original four sensor quantities remain in one SVM. Lowest oxygen and oxygen 
 
 Sleep duration is included as context at the user's explicit selection because the verified dataset does not contain actual sleep duration jointly with these sensors and apnea labels. It is saved with the result and explicitly excluded from the trained feature vector. No sleep value is invented or substituted with total recording length.
 
-The main page contains parameter fields and Predict only. There are no model selectors, example toggles, histories, metrics panels, or download controls.
+The dashboard has **Predict**, **Performance**, and **History** tabs. Accuracy, sensitivity, and specificity are visible above the form. The Performance tab shows precision, F1, ROC AUC, nested validation, the confusion matrix, signal-quality coverage, and a downloadable report from the **loaded model**.
+
+**Enter example data** and **Enter random data** fill the editable fields without submitting a prediction. Random oxygen summaries come from a coherent synthetic interval; they are demonstrations, never validation or training records. History keeps the latest 100 submissions, including every entered value, result, data source, time, and model ID. It is private to the active browser session, with CSV export and a Clear history button. It does not persist across session expiry or server restarts.
 
 ## Run
 
@@ -69,7 +71,7 @@ See [the reliability update](docs/reliability-update.md) and [full measured repo
 
 [OSASUD's verified Kaggle mirror](https://www.kaggle.com/datasets/menes97/osasud-sleep-apnea-original-parquet) contains real matched oxygen, pulse, breathing-rate and perfusion measurements with respiratory-event annotations. It has no sleep-stage export or actual time-asleep column.
 
-The larger Kaggle candidates inspected were synthetic, missing required measurements, or lacked verified clinical provenance. We do not generate oxygen/sleep values, join unrelated patients, use AHI/diagnosis as an input, or equate time recorded with time asleep to produce a higher accuracy number.
+The larger Kaggle candidates inspected were synthetic, missing required measurements, or lacked verified clinical provenance. We do not generate clinical training fields, join unrelated patients, use AHI/diagnosis as an input, or equate time recorded with time asleep to produce a higher accuracy number. UI demo data never enters training or evaluation.
 
 To learn sleep duration's contribution, obtain recordings with actual sleep duration and these sensor summaries measured for the same participants, with independent apnea labels. An input field alone cannot create that relationship.
 
@@ -113,7 +115,35 @@ Content-Type: application/json
 
 The response includes `context` and `context_not_used_by_model` to preserve the sleep-duration distinction. `GET /v3/model` returns the model report. `GET /health` is public. Authentication, strict numeric validation, and a 16 KB body limit apply. Use `APNEA_PREDICTOR_PATH` for a custom artifact.
 
+Devices can instead send **`POST /v3/window`** with four arrays of exactly 60 synchronized one-second readings. The service checks each channel's valid fraction and missing runs, then calculates all six summaries using the training conventions. Null indicates a missing reading; it is never replaced with a normal value. The response includes `signal_quality`, `sensor_features`, and the screening result, or `insufficient_evidence` with a null screening flag. The device/gateway must ensure timing, synchronization, and calibrated sensor units before sending.
+
+Example request body in Python (synthetic demonstration):
+
+```python
+body = {
+    "channels": {
+        "spo2": [96.0] * 30 + [98.0] * 30,
+        "heart_rate": [65.0] * 60,
+        "respiratory_rate": [16.0] * 60,
+        "perfusion_index": [3.5] * 60,
+    },
+    "sleep_duration": 7.0,  # Optional context; excluded from the model.
+}
+```
+
 Historical `/v1` and `/v2` routes remain for research compatibility and return 503 when their optional artifacts are not installed. The default container installs only the current predictor, avoiding unnecessary baseline training.
+
+## Research references and comparison
+
+The [reference audit](docs/research-review.md) records the corrected paper identities, accessible content, implications, and limitations for the presentation. The cited 2023 paper's Random Forest advantage did **not** reproduce on this task: under the same patient-separated nested development protocol, Random Forest achieved 62.3% accuracy, 84.2% sensitivity, and 50.3% specificity, versus SVM's 67.5%, 84.0%, and 58.5%. The SVM remains the application model; its evaluation metrics above are unchanged.
+
+The comparison never used the six reserved evaluation patients and never changed the production artifact. Reproduce it after training:
+
+```bash
+python -m src.research_benchmark --report docs/research-benchmark.json
+```
+
+See [the recorded comparison](docs/research-benchmark.json). Per-paper percentages from different datasets or diagnosis/severity targets are not directly comparable.
 
 ## Verify and deploy
 

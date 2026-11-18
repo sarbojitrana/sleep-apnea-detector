@@ -1,6 +1,6 @@
 # Deploy SleepSense on Render
 
-The initial deployment is one Streamlit parameter form with the current six-sensor-summary predictor and optional sleep-duration context, configured by `render.yaml`. The same container can serve the authenticated device API instead. Use separate services if both are required; each service runs one process and listens on the host-assigned `PORT`. Measured research performance has improved, but clinical reliability is not established.
+The dashboard contains one Streamlit prediction form, example/random prefill buttons, model-performance details, and session history, using the current six-sensor-summary predictor and optional sleep-duration context. It is configured by `render.yaml`. The same container can serve the authenticated device API instead. Use separate services if both are required; each service runs one process and listens on the host-assigned `PORT`. Measured research performance has improved, but clinical reliability is not established.
 
 ## Dashboard deployment
 
@@ -45,6 +45,7 @@ Create a separate service from the same repository/image, with these differences
 - Set a random `APNEA_API_KEY` of at least 24 characters as a Render secret. Never put its value in Git, the Blueprint, or the image.
 - Use `/health` as the service's health-check path.
 - Keep the key in the device/gateway configuration and send it as `Authorization: Bearer ...` to `/v3/screen`, with the six summaries in `examples/predictor_measurements.json` from the same completed 60-second interval. Optional `sleep_duration` is context only and is not used by the estimator.
+- Alternatively use `/v3/window` with four arrays of 60 synchronized one-second readings. The API applies quality checks and derives the summaries automatically. Synchronization and sensor calibration remain the device's responsibility.
 
 For a local API container:
 
