@@ -1,13 +1,13 @@
 # Deploy SleepSense on Render
 
-The initial deployment is one Streamlit dashboard, configured by the repository's `render.yaml`. The same container can instead serve the authenticated device API. Use separate services if both are required; each service runs one process and listens on the host-assigned `PORT`.
+The initial deployment is one Streamlit dashboard with a single combined-measurement predictor, configured by `render.yaml`. The same container can serve the authenticated device API instead. Use separate services if both are required; each service runs one process and listens on the host-assigned `PORT`. The combined model has inadequate screening performance and is explicitly marked experimental in the UI.
 
 ## Dashboard deployment
 
 1. Publish the reviewed source, including `render.yaml`, `Dockerfile`, `requirements.lock`, and the bundled dataset, to the GitHub repository.
 2. Connect Render to that repository. Create a Blueprint from its deployment branch, or create a Docker Web Service using the settings below.
 3. Keep the initial service on the **Free** plan. The Blueprint selects Singapore, runs `APP_MODE=dashboard`, and uses `/_stcore/health` for health checks.
-4. Let the image build finish. It installs the locked dependencies, downloads the pinned 6.4 MB public Kaggle oxygen file with checksum verification, and explicitly trains the lifestyle and experimental oxygen SVMs during the build. Both models are baked into the image, so a restart needs neither training nor a writable persistent disk. The oxygen model remains labelled as research; see the dataset-selection report for quality coverage and limitations.
+4. Let the image build finish. It installs the locked dependencies, downloads the pinned 6.4 MB public Kaggle file with checksum verification, and explicitly trains the combined SVM and historical lifestyle/oxygen baselines. Artifacts are baked into the image, so a restart needs neither training nor a writable persistent disk. See `docs/combined-evaluation.json` for the current form's performance; older baseline scores do not apply to it.
 5. Wait for Render to report the deployment live, then verify its actual returned URL, the dashboard screening form, the example import, and the model report. Do not infer a URL from the service name.
 
 Automatic redeployment is disabled in the Blueprint. After future source changes pass CI, trigger a reviewed deployment manually.
@@ -44,7 +44,7 @@ Create a separate service from the same repository/image, with these differences
 - Set `APP_MODE=api` and retain the Render-assigned port or set `PORT=10000`.
 - Set a random `APNEA_API_KEY` of at least 24 characters as a Render secret. Never put its value in Git, the Blueprint, or the image.
 - Use `/health` as the service's health-check path.
-- Keep the key in the device/gateway configuration and send it as `Authorization: Bearer ...` to `/v1/screen`.
+- Keep the key in the device/gateway configuration and send it as `Authorization: Bearer ...` to `/v2/screen`, with `spo2`, `heart_rate`, `respiratory_rate`, and `perfusion_index` from the same completed interval.
 
 For a local API container:
 
@@ -57,7 +57,7 @@ docker run --rm -p 127.0.0.1:8000:8000 \
 
 The dashboard does not require this API service and does not send its inputs to a second backend. The optional API remains independently authenticated.
 
-For an optical oxygen device, use the same bearer-authenticated service at `POST /v1/oximetry/screen`, sending `{"spo2_samples": [...]}` with exactly 60 samples at 1 Hz and `null` for missing readings. This is the experimental sensor model described in the dataset-selection report; its output is a window signal, not an apnea count or diagnosis.
+The old `/v1/screen` lifestyle route and `/v1/oximetry/screen` oxygen-pattern route remain for compatibility. They are separate research baselines, not the predictor used by the main form. `/v2/model` returns the combined model report.
 
 ## Hosted data and access
 

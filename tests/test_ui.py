@@ -1,38 +1,39 @@
-"""Exercise the dashboard as a user, including its failure and follow-up paths."""
+"""Verify the single-form combined predictor as a user."""
 import unittest
 
 from streamlit.testing.v1 import AppTest
 
+from src.combined import COMBINED_MODEL_PATH
 from src.data import ROOT
-from src.pipeline import MODEL_PATH
 
 
-@unittest.skipUnless(MODEL_PATH.exists(), "Train a model with python app.py train before UI tests.")
+@unittest.skipUnless(COMBINED_MODEL_PATH.exists(), "Train the combined model before UI tests.")
 class DashboardTests(unittest.TestCase):
-    def test_oxygen_research_tab_loads(self):
+    def test_single_form_contains_all_joint_inputs(self):
         app = AppTest.from_file(str(ROOT / "ui.py"), default_timeout=20).run()
         self.assertFalse(app.exception)
-        self.assertIn("Overnight SpO₂ · research", [tab.label for tab in app.tabs])
+        self.assertEqual(len(app.tabs), 0)
+        self.assertEqual([item.label for item in app.number_input],
+                         ["SpO₂ (%)", "Heart rate (bpm)", "Breathing rate (breaths/min)", "Perfusion index (%)"])
+        self.assertTrue(app.warning)
 
-    def test_required_inputs_and_example_screening(self):
+    def test_required_inputs_and_example_prediction(self):
         app = AppTest.from_file(str(ROOT / "ui.py"), default_timeout=20).run()
-        self.assertFalse(app.exception)
-        app.button(key="FormSubmitter:screening-Run screening").click().run()
+        app.button(key="FormSubmitter:combined_screening-Predict").click().run()
         self.assertTrue(app.error)
         app.toggle[0].set_value(True).run()
-        app.button(key="FormSubmitter:screening-Run screening").click().run()
+        app.button(key="FormSubmitter:combined_screening-Predict").click().run()
         self.assertFalse(app.exception)
-        self.assertIn("single_result", app.session_state)
-        self.assertTrue(app.session_state["single_result"]["example"])
+        self.assertTrue(app.session_state["combined_prediction"]["example"])
+        self.assertIn(app.session_state["combined_prediction"]["result"]["status"],
+                      ("positive", "negative", "insufficient_evidence"))
 
-    def test_outside_training_support_and_symptom_follow_up(self):
+    def test_unsupported_measurement_is_not_a_negative_prediction(self):
         app = AppTest.from_file(str(ROOT / "ui.py"), default_timeout=20).run()
         app.toggle[0].set_value(True).run()
-        app.number_input[0].set_value(70)
-        app.checkbox[1].check()
-        app.button(key="FormSubmitter:screening-Run screening").click().run()
+        app.number_input[0].set_value(50.0)
+        app.button(key="FormSubmitter:combined_screening-Predict").click().run()
         self.assertFalse(app.exception)
-        result = app.session_state["single_result"]["result"]
+        result = app.session_state["combined_prediction"]["result"]
         self.assertEqual(result["status"], "insufficient_evidence")
-        self.assertTrue(result["follow_up_recommended"])
-        self.assertTrue(app.warning)
+        self.assertIsNone(result["screen_positive"])

@@ -1,298 +1,124 @@
-"""Streamlit dashboard over the same screening contract used by the device API."""
+"""One form, one jointly trained sensor predictor, one screening result."""
 from datetime import datetime, timezone
 import json
-from pathlib import Path
 
 import pandas as pd
 import streamlit as st
-import io
 
-from src.batch import MAX_UPLOAD_BYTES, parse_upload, screen_batch
-from src.data import EXAMPLE_RECORD, INPUT_COLUMNS, ROOT
-from src.pipeline import MODEL_PATH, load_model, predict
-from src.utils import DISCLAIMER
-from src.oximetry import SENSOR_MODEL_PATH, load_sensor_model, screen_recording
+from src.combined import (COMBINED_MODEL_PATH, DISCLAIMER, EXAMPLE, load_combined_model,
+                          predict_combined)
 
-st.set_page_config(page_title="SleepSense · Sleep apnea screening", page_icon="🌙", layout="wide")
+st.set_page_config(page_title="SleepSense · Sleep apnea screening", page_icon="🌙", layout="centered")
 st.title("SleepSense")
-st.caption("Accessible sleep apnea screening · SVM research prototype")
-st.info("A first check using everyday measurements. This prototype estimates a dataset pattern; "
-        "it cannot diagnose apnea, measure its severity, or detect breathing emergencies.")
+st.write("Enter your measurements to screen for a sleep-apnea-related breathing pattern.")
+st.caption("Use averages from the same completed 60-second measurement period, ideally recorded during sleep.")
 
 
 @st.cache_resource
 def get_model(path, modified_ns):
-    # File timestamp invalidates the cache after explicit retraining.
-    return load_model(path)
+    return load_combined_model(path)
 
 
 try:
-    bundle = get_model(str(MODEL_PATH), MODEL_PATH.stat().st_mtime_ns)
-except (FileNotFoundError, ValueError) as error:
+    bundle = get_model(str(COMBINED_MODEL_PATH), COMBINED_MODEL_PATH.stat().st_mtime_ns)
+except (OSError, ValueError) as error:
     st.error(str(error))
-    st.code("python app.py train\nstreamlit run ui.py", language="bash")
+    st.code("python combined.py train\nstreamlit run ui.py", language="bash")
     st.stop()
 
 metadata = bundle["metadata"]
-with st.sidebar:
-    st.header("Your screening workspace")
-    st.write("**Inputs:** age, dataset gender category, BMI category, sleep duration, resting pulse, daily steps.")
-    st.caption("Profile details are entered once. Pulse can come from an optical PPG sensor; "
-               "steps and sleep estimates can come from a wearable or be entered manually.")
-    st.divider()
-    st.write("**Model loaded**")
-    st.code(metadata["model_id"], language=None)
-    st.caption(f"Trained {metadata['trained_at'][:10]} · {len(metadata['features'])} inputs")
-    st.caption("Inputs and screening history are kept in this session only by this application. "
-               "Downloads are saved only when you request them.")
-    if st.button("Clear session results", width="stretch"):
-        for key in ("single_result", "batch_results", "history", "oxygen_result"):
-            st.session_state.pop(key, None)
-        st.rerun()
+study = metadata["report"]
+metrics = study["experiments"]["combined"]["holdout"]
+st.warning("Experimental prototype: the current combined model has poor validation performance "
+           "and is not reliable for health decisions.")
+st.caption(DISCLAIMER)
 
-screen_tab, import_tab, history_tab, model_tab, oxygen_tab = st.tabs(
-    ["Screening", "Device import", "Session history", "Model & evidence", "Overnight SpO₂ · research"])
+use_example = st.toggle("Use example measurements", value=False)
+values = EXAMPLE if use_example else {}
+if use_example:
+    st.info("Example values are active. Replace all values to screen your own measurements.")
 
-STATUS_LABELS = {
-    "raised_signal": "Raised screening signal",
-    "lower_signal": "Lower screening signal",
-    "insufficient_evidence": "Insufficient evidence",
-    "invalid_input": "Invalid input",
-}
+with st.form("combined_screening"):
+    left, right = st.columns(2)
+    with left:
+        spo2 = st.number_input("SpO₂ (%)", min_value=1.0, max_value=100.0,
+                               value=values.get("spo2"), step=0.1,
+                               help="Average oxygen saturation percentage over the measurement period.")
+        pulse = st.number_input("Heart rate (bpm)", min_value=30.0, max_value=220.0,
+                                value=values.get("heart_rate"), step=1.0,
+                                help="Average pulse/heart rate over the same period.")
+    with right:
+        breathing = st.number_input("Breathing rate (breaths/min)", min_value=1.0, max_value=80.0,
+                                    value=values.get("respiratory_rate"), step=0.1,
+                                    help="Average respiratory rate over the same period.")
+        perfusion = st.number_input("Perfusion index (%)", min_value=0.01, max_value=30.0,
+                                    value=values.get("perfusion_index"), step=0.1,
+                                    help="Average PI reported by the optical pulse oximeter.")
+    submitted = st.form_submit_button("Predict", type="primary", width="stretch")
 
+if submitted:
+    record = {"spo2": spo2, "heart_rate": pulse, "respiratory_rate": breathing,
+              "perfusion_index": perfusion}
+    try:
+        if any(value is None for value in record.values()):
+            raise ValueError("Enter all four measurements before predicting.")
+        result = predict_combined(bundle, record)
+        snapshot = {"time": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                    "example": use_example, "inputs": record, "result": result}
+        st.session_state["combined_prediction"] = snapshot
+        st.session_state.setdefault("combined_history", []).append(snapshot)
+        st.session_state["combined_history"] = st.session_state["combined_history"][-20:]
+    except ValueError as error:
+        st.session_state.pop("combined_prediction", None)
+        st.error(str(error))
 
-def show_result(snapshot):
+if "combined_prediction" in st.session_state:
+    snapshot = st.session_state["combined_prediction"]
     result = snapshot["result"]
-    st.subheader(STATUS_LABELS[result["status"]])
-    st.caption(f"Screened at {snapshot['time']} · Model {result['model_id']}")
-    if result["follow_up_recommended"]:
-        st.warning(result["next_step"])
+    st.divider()
+    if result["screen_positive"] is True:
+        st.error(result["label"])
+    elif result["screen_positive"] is False:
+        st.info(result["label"])
     else:
-        st.info(result["next_step"])
+        st.warning(result["label"])
+    st.write(result["next_step"])
     for warning in result["warnings"]:
         st.warning(warning)
-    if result["reported_symptoms"]:
-        st.write("**Reported symptoms requiring attention**")
-        for symptom in result["reported_symptoms"]:
-            st.write(f"• {symptom}")
-        st.caption("Symptoms are follow-up prompts, separate from the SVM. They are not a validated questionnaire score.")
-    with st.expander("Inputs and technical result"):
-        st.json(snapshot)
-        st.caption("The decision margin is a signed SVM score. It is not a probability, confidence, or severity.")
-    st.download_button("Download this screening report", json.dumps(snapshot, indent=2),
-                       file_name="sleep-screening.json", mime="application/json", key="single_download")
+    st.caption("This is an experimental screening output, not confirmation or exclusion of sleep apnea.")
+    st.download_button("Download result", json.dumps(snapshot, indent=2),
+                       file_name="sleepsense-result.json", mime="application/json")
 
-
-with screen_tab:
-    st.subheader("Start with a daily summary")
-    st.write("Use the main sleep period, a resting pulse measurement, and the full day's step total. "
-             "A single pulse reading during activity is not a resting pulse.")
-    use_example = st.toggle("Use example values", value=False,
-                            help="Examples demonstrate the app. Replace every value with your own measurements.")
-    values = EXAMPLE_RECORD if use_example else {}
-    if use_example:
-        st.warning("Example data is active. Any result describes the example inputs.")
-    with st.form("screening"):
-        left, right = st.columns(2)
-        with left:
-            st.markdown("#### Profile")
-            gender = st.selectbox("Gender category used by the dataset", ["Female", "Male"],
-                                  index=0 if use_example else None,
-                                  help="The source has only these two categories; generalization beyond them is unvalidated.")
-            age = st.number_input("Age (years)", 18, 100, value=values.get("age"), step=1)
-            bmi = st.selectbox("BMI category", ["Normal", "Overweight", "Obese"],
-                               index=0 if use_example else None,
-                               help="Use your measured height/weight and an appropriate clinical classification; "
-                                    "the source's category cutoffs are not documented.")
-        with right:
-            st.markdown("#### Everyday measurements")
-            sleep = st.number_input("Sleep duration (hours/night)", 0.5, 16.0,
-                                    value=values.get("sleep_duration"), step=0.1)
-            heart = st.number_input("Resting pulse (bpm)", 30.0, 220.0,
-                                    value=float(values["heart_rate"]) if use_example else None, step=1.0)
-            steps = st.number_input("Daily steps (steps/day)", 0, 100000,
-                                    value=values.get("daily_steps"), step=100)
-        st.markdown("#### Symptoms you have noticed")
-        st.caption("Optional. Unchecked boxes are not evidence that symptoms are absent.")
-        snoring = st.checkbox("Persistent loud snoring")
-        pauses = st.checkbox("Someone has noticed breathing pauses, gasping, or choking during sleep")
-        sleepy = st.checkbox("Persistent daytime sleepiness")
-        submitted = st.form_submit_button("Run screening", type="primary", width="stretch")
-
-    if submitted:
-        record = {
-            "gender": gender, "age": age, "sleep_duration": sleep, "bmi": bmi,
-            "heart_rate": heart, "daily_steps": steps, "loud_snoring": snoring,
-            "witnessed_pauses": pauses, "daytime_sleepiness": sleepy,
-        }
-        try:
-            result = predict(bundle, record)
-            snapshot = {"time": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-                        "example": use_example, "inputs": record, "result": result}
-            st.session_state["single_result"] = snapshot
-            st.session_state.setdefault("history", []).append(snapshot)
-            st.session_state["history"] = st.session_state["history"][-20:]
-        except ValueError as error:
-            st.session_state.pop("single_result", None)
-            st.error(str(error))
-    if "single_result" in st.session_state:
-        st.divider()
-        show_result(st.session_state["single_result"])
-
-with import_tab:
-    st.subheader("Import daily device summaries")
-    st.write("Upload CSV or JSON containing up to 100 daily summaries (1 MB maximum). "
-             "Each row must contain all six required inputs. Raw PPG, ECG, EEG, oxygen samples, "
-             "and audio are not supported by this trained model.")
-    st.caption("Heart rate must already be a valid resting-pulse estimate. Sleep duration must already "
-               "be estimated by your device or entered manually; this app does not derive sleep from motion.")
-    col1, col2 = st.columns(2)
-    col1.download_button("Download CSV example", (ROOT / "examples/daily_summaries.csv").read_bytes(),
-                         file_name="daily_summaries.csv", mime="text/csv")
-    col2.download_button("Download JSON example", (ROOT / "examples/daily_summary.json").read_bytes(),
-                         file_name="daily_summary.json", mime="application/json")
-    uploaded = st.file_uploader("Daily summaries", type=["csv", "json"])
-    if st.button("Screen imported summaries", disabled=uploaded is None):
-        st.session_state.pop("batch_results", None)
-        try:
-            if uploaded.size > MAX_UPLOAD_BYTES:
-                raise ValueError("Upload must be at most 1 MB.")
-            records = parse_upload(uploaded.getvalue(), Path(uploaded.name).suffix)
-            st.session_state["batch_results"] = screen_batch(bundle, records)
-        except ValueError as error:
-            st.error(str(error))
-    if "batch_results" in st.session_state:
-        results = st.session_state["batch_results"]
-        st.dataframe(pd.DataFrame([{
-            "Row": r["row"], "Result": STATUS_LABELS[r["status"]],
-            "Follow-up prompted": r.get("follow_up_recommended"),
-            "Details": r.get("error") or "; ".join(r.get("warnings", [])) or r.get("next_step"),
-        } for r in results]), hide_index=True, width="stretch")
-        st.download_button("Download all results", json.dumps(results, indent=2),
-                           file_name="screening-results.json", mime="application/json")
-
-with history_tab:
-    st.subheader("Recent screenings in this session")
-    history = st.session_state.get("history", [])
-    if not history:
-        st.write("Completed manual screenings will appear here. Device imports have a separate download.")
-    else:
-        st.dataframe(pd.DataFrame([{
-            "Time (UTC)": item["time"], "Example": item["example"],
-            "Result": STATUS_LABELS[item["result"]["status"]],
-            "Follow-up prompted": item["result"]["follow_up_recommended"],
-        } for item in reversed(history)]), hide_index=True, width="stretch")
-        st.download_button("Download session reports", json.dumps(history, indent=2),
-                           file_name="sleep-screening-session.json", mime="application/json")
-    st.caption("Up to 20 manual screenings are retained for this browser session. This is not longitudinal clinical monitoring.")
-
-with model_tab:
-    st.subheader("What the evidence supports")
-    st.write("This is a model of labels in the Kaggle Sleep Health and Lifestyle dataset. "
-             "No independently verified sleep-study ground truth or external device validation is bundled.")
-    metrics = metadata["metrics"]
-    a, b, c = st.columns(3)
-    a.metric("Dataset rows", metrics["dataset"]["rows"])
-    b.metric("Distinct input profiles", metrics["dataset"]["unique_profiles"])
-    c.metric("Conflicting-label profiles", metrics["dataset"]["conflicting_binary_label_profiles"])
-    st.write("Repeated profiles stay in the same fold, including profiles with conflicting labels. "
-             "Nested development validation retunes the SVM in each outer fold. "
-             "The saved classifier is trained on development rows only; holdout rows remain unseen.")
-    st.markdown("#### Dataset evaluation · raw SVM")
-    left, right = st.columns(2)
-    left.metric("Grouped holdout sensitivity", f"{metrics['recall']:.1%}")
-    left.metric("Grouped holdout specificity", f"{metrics['specificity']:.1%}")
-    nested = metrics["nested_development_cv"]["pooled"]
-    right.metric("Nested development sensitivity", f"{nested['recall']:.1%}")
-    right.metric("Nested development specificity", f"{nested['specificity']:.1%}")
-    st.dataframe(pd.DataFrame(metrics["confusion_matrix"],
-                 index=["Actual other label", "Actual apnea label"],
-                 columns=["Predicted other label", "Predicted apnea label"]), width="stretch")
-    interval = metrics["sensitivity_interval_95"]
-    st.caption(f"Holdout: {metrics['holdout']['rows']} rows, {metrics['holdout']['unique_profiles']} profiles. "
-               f"Row-level sensitivity interval: {interval[0]:.1%}–{interval[1]:.1%}. "
-               "These are descriptive dataset metrics, not clinical accuracy. Repeated rows reduce independence.")
-    st.markdown("#### Training support")
-    rows = [{"Input": key, "Training minimum": metadata["feature_bounds"][column][0],
-             "Training maximum": metadata["feature_bounds"][column][1]}
-            for key, column in INPUT_COLUMNS.items() if key not in ("gender", "bmi")]
-    st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")
-    st.write("Inputs outside these ranges receive “Insufficient evidence”. Being within the ranges "
-             "does not establish that a person or device resembles the training population.")
-    st.write("Optical pulse sensing and wearable sleep estimates need validation on real recordings. "
-             "The current model does not use SpO₂, detect apnea events, or compute an apnea–hypopnea index.")
-    st.markdown("[Dataset source](https://www.kaggle.com/datasets/uom190346a/sleep-health-and-lifestyle-dataset) · "
-                "[AASM diagnostic guideline](https://aasm.org/resources/clinicalguidelines/diagnostic-testing-osa.pdf) · "
-                "[FDA pulse oximeter limitations](https://www.fda.gov/consumers/consumer-updates/pulse-oximeter-basics)")
-    with st.expander("Full reproducible training report"):
-        st.json(metadata)
-    st.download_button("Download model report", json.dumps(metadata, indent=2),
-                       file_name="model-report.json", mime="application/json")
-
-with oxygen_tab:
-    st.subheader("Experimental overnight oxygen analysis")
-    st.warning("Research model trained on 30 stroke-unit patients. It classifies oxygen windows associated "
-               "with annotated apnea/hypopnea; it does not establish whether a person has sleep apnea.")
-    st.write("Uses only SpO₂ percentages from an optical oximeter, sampled once per second. "
-             "No EEG, ECG, ECG-derived heart rate, or respiratory rate is used. "
-             "Each result covers a completed 60-second window.")
-    st.markdown("[Kaggle dataset](https://www.kaggle.com/datasets/menes97/osasud-sleep-apnea-original-parquet) · "
+with st.expander("Model details and measured performance"):
+    st.write("All four measurements enter the same scaled SVM. There is no separate oxygen-only "
+             "prediction in this form and no blending of independently trained models.")
+    nested = study["experiments"]["combined"]["nested_development"]["pooled"]
+    st.dataframe(pd.DataFrame({
+        "Metric": ["Accuracy", "Sensitivity", "Specificity", "Precision", "F1", "ROC AUC"],
+        "Six-patient evaluation": [metrics[k] for k in ("accuracy", "recall", "specificity", "precision", "f1", "roc_auc")],
+        "Nested development validation": [nested[k] for k in ("accuracy", "recall", "specificity", "precision", "f1", "roc_auc")],
+    }), hide_index=True, width="stretch")
+    coverage = study["quality"]["holdout"]
+    st.write(f"Usable-window coverage: {coverage['coverage']:.1%}. Results apply to measurement "
+             "intervals from a small stroke-unit dataset, rather than independently diagnosed new patients.")
+    st.write("The source heart-rate and breathing-rate values came from clinical monitors. "
+             "Using optical pulse and wearable breathing estimates needs device validation.")
+    st.write("Normal measurements while awake cannot establish that breathing remains normal during sleep.")
+    st.markdown("[Kaggle source](https://www.kaggle.com/datasets/menes97/osasud-sleep-apnea-original-parquet) · "
                 "[Original publication](https://doi.org/10.1038/s41597-022-01272-y)")
+    st.download_button("Download full model report", json.dumps(metadata, indent=2),
+                       file_name="combined-model-report.json", mime="application/json")
 
-    @st.cache_resource
-    def get_oxygen_model(path, modified_ns):
-        return load_sensor_model(path)
-
-    oxygen_bundle = None
-    try:
-        oxygen_bundle = get_oxygen_model(str(SENSOR_MODEL_PATH), SENSOR_MODEL_PATH.stat().st_mtime_ns)
-    except (OSError, ValueError):
-        st.info("Train the separate oxygen model to enable this research mode.")
-        st.code("python sensor.py download\npython sensor.py train", language="bash")
-    if oxygen_bundle is not None:
-        study = oxygen_bundle["metadata"]["report"]
-        metrics_oxy = study["experiments"]["oximetry_features"]["holdout"]
-        coverage = study["quality"]["holdout"]
-        a, b, c = st.columns(3)
-        a.metric("Held-out window accuracy", f"{metrics_oxy['accuracy']:.1%}")
-        b.metric("Held-out window sensitivity", f"{metrics_oxy['recall']:.1%}")
-        c.metric("Usable-window coverage", f"{coverage['coverage']:.1%}")
-        st.caption("Scores apply only to usable windows from six held-out patients. "
-                   "Oxygen-pattern features are compared with a mean-oxygen baseline in the report. "
-                   "These scores are not comparable to the lifestyle model's person-label scores.")
-        total_positive = coverage["all_positive_windows"]
-        flagged_positive = metrics_oxy["confusion_matrix"][1][1]
-        st.caption(f"Including unusable data, {flagged_positive} of {total_positive} annotated positive "
-                   f"windows were flagged ({flagged_positive / total_positive:.1%}). "
-                   "Unusable data is never classified as normal.")
-        st.write("Upload a CSV with exactly **elapsed_seconds,spo2**. Supply consecutive whole seconds "
-                 "at 1 Hz, at least 60 samples, up to 12 hours and 1 MB. Leave missing oxygen readings "
-                 "blank while retaining their timestamp. Do not resample a low-rate device by repeating readings.")
-        st.caption("A window needs at least 90% valid samples and no missing run longer than five seconds. "
-                   "Unusable windows receive ‘Insufficient evidence’. Raised windows are not apnea counts or AHI.")
-        oxygen_upload = st.file_uploader("One-second SpO₂ recording", type=["csv"], key="oxygen_upload")
-        if st.button("Analyze oxygen recording", disabled=oxygen_upload is None, key="analyze_oxygen"):
-            st.session_state.pop("oxygen_result", None)
-            try:
-                if oxygen_upload.size > MAX_UPLOAD_BYTES:
-                    raise ValueError("Recording must be at most 1 MB.")
-                frame = pd.read_csv(io.BytesIO(oxygen_upload.getvalue()))
-                st.session_state["oxygen_result"] = screen_recording(oxygen_bundle, frame)
-            except (ValueError, pd.errors.ParserError) as error:
-                st.error(str(error))
-        if "oxygen_result" in st.session_state:
-            oxygen_result = st.session_state["oxygen_result"]
-            st.dataframe(pd.DataFrame(oxygen_result["windows"]), hide_index=True, width="stretch")
-            st.write(f"Raised windows: {oxygen_result['raised_windows']}; "
-                     f"unusable windows: {oxygen_result['abstained_windows']}; "
-                     f"trailing samples not scored: {oxygen_result['trailing_samples_not_scored']}.")
-            st.caption(oxygen_result["disclaimer"])
-            st.download_button("Download oxygen analysis", json.dumps(oxygen_result, indent=2),
-                               file_name="oxygen-window-analysis.json", mime="application/json")
-        with st.expander("Patient-separated sensor evaluation"):
-            st.json(study)
-        st.download_button("Download sensor model report", json.dumps(oxygen_bundle["metadata"], indent=2),
-                           file_name="oximetry-model-report.json", mime="application/json")
-
-st.divider()
-st.caption(DISCLAIMER)
+with st.expander("Recent results"):
+    history = st.session_state.get("combined_history", [])
+    if history:
+        st.dataframe(pd.DataFrame([{
+            "Time (UTC)": row["time"], "Example": row["example"],
+            "Result": row["result"]["label"],
+        } for row in reversed(history)]), hide_index=True, width="stretch")
+    else:
+        st.write("Predictions from this browser session appear here.")
+    if st.button("Clear results"):
+        st.session_state.pop("combined_history", None)
+        st.session_state.pop("combined_prediction", None)
+        st.rerun()

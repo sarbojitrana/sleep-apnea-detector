@@ -22,11 +22,11 @@
   ],
   "acquisition_population": "30 patients admitted to the stroke unit of Udine University Hospital, Italy.",
   "mirror_verification": "Downloaded pinned Parquet and schema report; checked counts, ranges, identifiers and annotation consistency against mirror report and original publication. Publisher MD5 matches the converter's stated original checksum. Did not independently repeat the 3.28 GB pickle-to-Parquet conversion.",
-  "model_input_channels": [
+  "label_source": "event; any annotated apnea/hypopnea second in the window",
+  "oxygen_baseline_input_channels": [
     "SpO2(%)"
   ],
-  "label_source": "event; any annotated apnea/hypopnea second in the window",
-  "excluded_predictors": [
+  "oxygen_baseline_excluded_predictors": [
     "HR(bpm): ECG-derived",
     "RR(rpm): ECG-derived",
     "PVCs(/min): ECG-derived",
@@ -36,5 +36,21 @@
     "timestamp_datetime: ordering only",
     "EEG and ECG waveforms",
     "PSG-derived channels"
+  ],
+  "combined_input_channels": [
+    "SpO2(%)",
+    "HR(bpm)",
+    "RR(rpm)",
+    "PI(%)"
+  ],
+  "combined_measurement_provenance": "HR and RR scalars are clinical monitor/ECG-derived in the source; no EEG or ECG waveform is required at inference. Optical pulse and wearable respiratory-rate estimates need device-transfer validation.",
+  "combined_excluded_predictors": [
+    "EEG/ECG waveforms",
+    "AHI",
+    "event and anomaly (targets only)",
+    "patient (split only)",
+    "timestamp (ordering only)",
+    "PVCs",
+    "PSG waveform channels"
   ]
 }

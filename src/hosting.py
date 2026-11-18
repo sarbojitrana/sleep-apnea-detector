@@ -4,7 +4,7 @@ import sys
 from urllib.request import urlopen
 
 from src.data import ROOT
-from src.pipeline import load_model
+from src.combined import load_combined_model
 
 
 def hosting_settings(environment):
@@ -48,7 +48,7 @@ def main():
     mode, _ = hosting_settings(os.environ)
     if mode == "dashboard":
         # Fail startup before declaring the Streamlit server healthy if the model is unusable.
-        load_model()
+        load_combined_model()
     os.chdir(ROOT)
     command = server_command(os.environ)
     os.execv(command[0], command)

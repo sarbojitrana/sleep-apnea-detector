@@ -12,6 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from src.pipeline import MODEL_PATH, load_model, predict
 from src.oximetry import (SENSOR_DISCLAIMER, SENSOR_MODEL_PATH, load_sensor_model,
                           predict_window)
+from src.combined import COMBINED_MODEL_PATH, load_combined_model, predict_combined
 
 MAX_REQUEST_BYTES = 16_384
 
@@ -35,6 +36,14 @@ class OximetryInput(BaseModel):
         description="Exactly 60 consecutive one-second optical oxygen percentages; null means a missing reading.")
 
 
+class CombinedInput(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True, allow_inf_nan=False)
+    spo2: float = Field(ge=1, le=100)
+    heart_rate: float = Field(ge=30, le=220)
+    respiratory_rate: float = Field(ge=1, le=80)
+    perfusion_index: float = Field(ge=0.01, le=30)
+
+
 async def validated_body(request, schema):
     if request.headers.get("content-type", "").split(";")[0].strip().lower() != "application/json":
         raise HTTPException(415, "Use application/json.")
@@ -51,7 +60,7 @@ async def validated_body(request, schema):
         raise HTTPException(422, detail=details) from error
 
 
-def create_app(model_path=None, api_key=None, sensor_model_path=None):
+def create_app(model_path=None, api_key=None, sensor_model_path=None, combined_model_path=None):
     bearer = HTTPBearer(auto_error=False)
 
     @asynccontextmanager
@@ -60,13 +69,17 @@ def create_app(model_path=None, api_key=None, sensor_model_path=None):
         if len(key) < 24:
             raise RuntimeError("Set APNEA_API_KEY to a random secret of at least 24 characters.")
         application.state.api_key = key
-        application.state.bundle = load_model(
-            Path(model_path or os.environ.get("APNEA_MODEL_PATH", MODEL_PATH)))
+        legacy_path = Path(model_path or os.environ.get("APNEA_MODEL_PATH", MODEL_PATH))
+        application.state.bundle = load_model(legacy_path) if legacy_path.is_file() else None
         sensor_path = Path(sensor_model_path or os.environ.get("APNEA_SENSOR_MODEL_PATH", SENSOR_MODEL_PATH))
         application.state.sensor_bundle = load_sensor_model(sensor_path) if sensor_path.is_file() else None
+        combined_path = Path(combined_model_path or os.environ.get("APNEA_COMBINED_MODEL_PATH", COMBINED_MODEL_PATH))
+        application.state.combined_bundle = load_combined_model(combined_path) if combined_path.is_file() else None
+        if application.state.bundle is None and application.state.combined_bundle is None:
+            raise RuntimeError("No screening model is installed. Run python combined.py train.")
         yield
 
-    application = FastAPI(title="Sleep Apnea Screening Prototype", version="2.0.0", lifespan=lifespan,
+    application = FastAPI(title="Sleep Apnea Screening Prototype", version="3.0.0", lifespan=lifespan,
                           description="Research screening only; no apnea diagnosis or real-time event detection.")
 
     def authenticate(request: Request,
@@ -77,11 +90,17 @@ def create_app(model_path=None, api_key=None, sensor_model_path=None):
 
     @application.get("/health")
     def health(request: Request):
-        return {"status": "ready", "model_id": request.app.state.bundle["metadata"]["model_id"]}
+        bundle = request.app.state.combined_bundle or request.app.state.bundle
+        return {"status": "ready", "model_id": bundle["metadata"]["model_id"]}
+
+    def legacy_bundle(request):
+        if request.app.state.bundle is None:
+            raise HTTPException(503, "Legacy lifestyle model is not installed.")
+        return request.app.state.bundle
 
     @application.get("/v1/model", dependencies=[Depends(authenticate)])
     def model_card(request: Request):
-        return request.app.state.bundle["metadata"]
+        return legacy_bundle(request)["metadata"]
 
     @application.post("/v1/screen", dependencies=[Depends(authenticate)], openapi_extra={
         "requestBody": {"required": True, "content": {
@@ -89,7 +108,24 @@ def create_app(model_path=None, api_key=None, sensor_model_path=None):
     })
     async def screen(request: Request):
         record = await validated_body(request, ScreeningInput)
-        return predict(request.app.state.bundle, record.model_dump())
+        return predict(legacy_bundle(request), record.model_dump())
+
+    def combined_bundle(request):
+        if request.app.state.combined_bundle is None:
+            raise HTTPException(503, "Combined screening model is not installed.")
+        return request.app.state.combined_bundle
+
+    @application.get("/v2/model", dependencies=[Depends(authenticate)])
+    def combined_model_card(request: Request):
+        return combined_bundle(request)["metadata"]
+
+    @application.post("/v2/screen", dependencies=[Depends(authenticate)], openapi_extra={
+        "requestBody": {"required": True, "content": {
+            "application/json": {"schema": CombinedInput.model_json_schema()}}}
+    })
+    async def combined_screen(request: Request):
+        record = await validated_body(request, CombinedInput)
+        return predict_combined(combined_bundle(request), record.model_dump())
 
     def oxygen_bundle(request):
         bundle = request.app.state.sensor_bundle

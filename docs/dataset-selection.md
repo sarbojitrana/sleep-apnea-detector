@@ -68,7 +68,7 @@ The lifestyle SVM's 90.5% holdout accuracy cannot be compared as a ranking: it p
 
 ## Application and device format
 
-The dashboard adds an **Overnight SpO₂ · research** tab, while the existing lifestyle model remains available. Both artifacts are separate. The container explicitly downloads the pinned scalar file and trains both models during build; neither model trains on a user request.
+This report describes the historical oxygen-only experiment. The main dashboard now presents one combined form with SpO₂, pulse, breathing rate, and perfusion index; its separate measured results are in [combined-evaluation.json](combined-evaluation.json). The oxygen-pattern artifact remains available through the research CLI/API. No model trains on a user request.
 
 Upload a CSV with exactly these columns:
 

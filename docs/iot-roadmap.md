@@ -2,28 +2,27 @@
 
 ## Current build
 
-The application predicts a person-level dataset label from six daily/profile inputs. It is suitable for demonstrating the software workflow and testing a local device-to-gateway connection. It has no real-time apnea event detector or alarm.
+The main application uses one form and one SVM with four jointly recorded quantities. It predicts an annotated breathing-event pattern in a completed measurement interval. Its measured sensitivity is poor, so it demonstrates the workflow rather than providing reliable health screening. It has no confirmed person-level diagnosis or emergency alarm.
 
 | Input | Accessible source | Important boundary |
 | --- | --- | --- |
-| Age and dataset gender category | User profile | Only two source categories; no validated extrapolation |
-| BMI category | Measured weight/height plus an appropriate category | Source category cutoffs are not documented |
-| Resting pulse | Optical PPG sensor, wearable, or manual measurement | Validate pulse extraction, reject movement and poor contact |
-| Daily steps | Accelerometer or phone summary | Calibrate step counting; do not substitute night-only steps |
-| Sleep duration | Manual sleep diary or validated wearable estimate | Quiet wakefulness is not necessarily sleep |
+| SpO₂ | Optical pulse oximeter | Validate calibration, contact and averaging |
+| Heart rate | Optical pulse sensor | Source monitor used ECG-derived HR; device transfer needs validation |
+| Breathing rate | Wearable respiratory sensor | Source monitor used ECG-derived RR; estimates are not automatically interchangeable |
+| Perfusion index | Optical pulse oximeter / PPG processing | Use the reported percentage, not raw ADC values |
 
-No EEG, ECG, cuff pressure, or stress sensor is required. Entry points require all six inputs so that device data loss never silently becomes an invented normal measurement.
+No EEG or ECG waveform is required as an input. All four quantities must describe the same 60-second period. Missing values are never replaced by normal defaults. The earlier lifestyle and oxygen-pattern models remain historical research baselines.
 
-## Stage 1 · Connect a daily-summary device
+## Stage 1 · Connect the combined-measurement device
 
 1. Choose a microcontroller that can transmit JSON, and an optical pulse sensor with a documented sampling interface.
-2. Obtain a reliable resting-pulse summary, steps/day, and sleep hours from the sensor/companion workflow. These algorithms are outside this repository.
-3. Keep profile data on the companion/gateway and combine it with the daily summary.
-4. Send the exact example JSON schema to the authenticated local API over a trusted connection.
+2. Obtain reliable oxygen, pulse, breathing-rate, and perfusion measurements, including quality checks. These extraction/calibration algorithms are outside this repository.
+3. Average all four quantities over the same completed 60-second interval.
+4. Send `examples/combined_measurements.json` format to the authenticated `/v2/screen` endpoint over a trusted connection.
 5. Handle `insufficient_evidence` and `null` screening flags explicitly. An unsupported or missing input is not a negative result.
 6. Display the next step and model ID; preserve the distinction between example data and measured data.
 
-The bundled CSV can exercise lower/raised signals, invalid rows, and unsupported profiles before connecting hardware. Do not send individual sensor samples to a model trained on daily summaries.
+Use the combined JSON example to exercise the interface before connecting hardware. A single spot measurement while awake is not equivalent to overnight breathing measurements.
 
 A Python gateway allows offline operation on the local network. Remote hosting introduces connectivity and privacy requirements. An ESP32/Arduino cannot execute this scikit-learn artifact directly.
 
@@ -31,7 +30,7 @@ A Python gateway allows offline operation on the local network. Remote hosting i
 
 Before offering real physiological screening, obtain a dataset containing inexpensive sensor channels actually available on the chosen device. Match each recording with independently verified reference labels and documented sensor units, sample rate, timing, and subject identifiers.
 
-For a future overnight model, possible inexpensive channels include optical pulse/SpO₂, motion, and a carefully validated snoring/acoustic signal. Which channels are useful must be established from data. The current Kaggle CSV provides no basis for training or testing those features.
+The current Kaggle OSASUD mirror contains joint clinical-monitor measurements and respiratory-event annotations, but only 30 stroke-unit patients. The four-average combined model did not generalize well. Future data should pair the actual IoT measurements with appropriate reference labels across a broader population. Motion, snoring and profile variables can be considered when recorded and labelled for the same participants; do not join unrelated datasets to fabricate that relationship.
 
 Validate these points before implementing an overnight SVM:
 
