@@ -2,7 +2,7 @@
 
 ## Current build
 
-The main application uses one form and one SVM with four jointly recorded quantities. It predicts an annotated breathing-event pattern in a completed measurement interval. Its measured sensitivity is poor, so it demonstrates the workflow rather than providing reliable health screening. It has no confirmed person-level diagnosis or emergency alarm.
+The main application uses one parameter form and one SVM, preserving the four jointly recorded quantities and adding oxygen minimum and standard deviation. Sleep duration is explicitly context only because matched sleep-duration data is unavailable. The current model improves interval-level sensitivity but is not externally or clinically validated. It has no confirmed person-level diagnosis or emergency alarm.
 
 | Input | Accessible source | Important boundary |
 | --- | --- | --- |
@@ -11,14 +11,14 @@ The main application uses one form and one SVM with four jointly recorded quanti
 | Breathing rate | Wearable respiratory sensor | Source monitor used ECG-derived RR; estimates are not automatically interchangeable |
 | Perfusion index | Optical pulse oximeter / PPG processing | Use the reported percentage, not raw ADC values |
 
-No EEG or ECG waveform is required as an input. All four quantities must describe the same 60-second period. Missing values are never replaced by normal defaults. The earlier lifestyle and oxygen-pattern models remain historical research baselines.
+No EEG or ECG waveform is required as an input. All six sensor summaries must describe the same 60-second period. Missing values are never replaced by normal defaults. Sleep duration is not fabricated from recording length. Earlier classifiers remain historical research baselines.
 
 ## Stage 1 · Connect the combined-measurement device
 
 1. Choose a microcontroller that can transmit JSON, and an optical pulse sensor with a documented sampling interface.
 2. Obtain reliable oxygen, pulse, breathing-rate, and perfusion measurements, including quality checks. These extraction/calibration algorithms are outside this repository.
-3. Average all four quantities over the same completed 60-second interval.
-4. Send `examples/combined_measurements.json` format to the authenticated `/v2/screen` endpoint over a trusted connection.
+3. Average all four quantities over the same completed 60-second interval, and also calculate minimum and population standard deviation of valid SpO₂ readings in that interval.
+4. Send `examples/predictor_measurements.json` format to the authenticated `/v3/screen` endpoint over a trusted connection. Optional sleep duration is context only.
 5. Handle `insufficient_evidence` and `null` screening flags explicitly. An unsupported or missing input is not a negative result.
 6. Display the next step and model ID; preserve the distinction between example data and measured data.
 
@@ -30,7 +30,7 @@ A Python gateway allows offline operation on the local network. Remote hosting i
 
 Before offering real physiological screening, obtain a dataset containing inexpensive sensor channels actually available on the chosen device. Match each recording with independently verified reference labels and documented sensor units, sample rate, timing, and subject identifiers.
 
-The current Kaggle OSASUD mirror contains joint clinical-monitor measurements and respiratory-event annotations, but only 30 stroke-unit patients. The four-average combined model did not generalize well. Future data should pair the actual IoT measurements with appropriate reference labels across a broader population. Motion, snoring and profile variables can be considered when recorded and labelled for the same participants; do not join unrelated datasets to fabricate that relationship.
+The current Kaggle OSASUD mirror contains joint clinical-monitor measurements and respiratory-event annotations, but only 30 stroke-unit patients. The four-average model did not generalize well; retaining oxygen dynamics and selecting the operating point on development patients improved sensitivity, with more false alarms. Future data should pair actual IoT measurements and actual sleep duration with appropriate reference labels across a broader population. Motion, snoring and profile variables can be considered when recorded and labelled for the same participants; do not join unrelated datasets to fabricate that relationship.
 
 Validate these points before implementing an overnight SVM:
 

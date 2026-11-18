@@ -1,0 +1,538 @@
+{
+  "predictor_schema_version": 1,
+  "features": [
+    "spo2",
+    "heart_rate",
+    "respiratory_rate",
+    "perfusion_index",
+    "spo2_min",
+    "spo2_std"
+  ],
+  "context_fields": [
+    "sleep_duration"
+  ],
+  "decision_threshold": -0.7106841769831378,
+  "sklearn_version": "1.9.0",
+  "trained_at": "2026-11-18T04:00:15.784541+00:00",
+  "window_seconds": 60,
+  "report": {
+    "dataset": {
+      "kaggle_ref": "menes97/osasud-sleep-apnea-original-parquet",
+      "version": 1,
+      "sha256": "6a685bac8a65bd52f986ab8d66547f49d73082d7555250f4e54d69c00a8a44b9",
+      "publication": "https://doi.org/10.1038/s41597-022-01272-y",
+      "original_data": "https://doi.org/10.6084/m9.figshare.19214289.v1",
+      "patients": 30
+    },
+    "measurement_period": "Sensor summaries from the same completed 60-second interval.",
+    "target": "At least one expert-annotated apnea/hypopnea second in that interval; not person-level diagnosis.",
+    "split": {
+      "seed": 42,
+      "development_patients": [
+        "1",
+        "10",
+        "11",
+        "12",
+        "13",
+        "14",
+        "15",
+        "16",
+        "19",
+        "2",
+        "20",
+        "21",
+        "22",
+        "24",
+        "26",
+        "27",
+        "28",
+        "29",
+        "3",
+        "4",
+        "5",
+        "6",
+        "8",
+        "9"
+      ],
+      "holdout_patients": [
+        "17",
+        "18",
+        "23",
+        "25",
+        "30",
+        "7"
+      ]
+    },
+    "threshold_selection": {
+      "method": "Positive-score quantile from patient-separated out-of-fold training predictions.",
+      "target_development_recall": 0.85,
+      "note": "Target recall is a development objective, not a guaranteed clinical or evaluation sensitivity."
+    },
+    "model_selection": "Inner patient-group CV maximizes balanced accuracy; outer validation refits tuning and threshold.",
+    "experiments": {
+      "four_average_retrained": {
+        "features": [
+          "spo2",
+          "heart_rate",
+          "respiratory_rate",
+          "perfusion_index"
+        ],
+        "nested_development": {
+          "pooled": {
+            "accuracy": 0.3799415039154637,
+            "precision": 0.34655826558265584,
+            "recall": 0.8545843357391072,
+            "specificity": 0.12102653834937299,
+            "f1": 0.49313589387629186,
+            "f2": 0.6608375707966431,
+            "roc_auc": 0.45566655589239974,
+            "average_precision": 0.3416642457620127,
+            "confusion_matrix": [
+              [
+                830,
+                6028
+              ],
+              [
+                544,
+                3197
+              ]
+            ],
+            "false_negatives": 544,
+            "false_positives": 6028,
+            "report": "                                 precision    recall  f1-score   support\n\n   No annotated breathing event       0.60      0.12      0.20      6858\nAnnotated apnea/hypopnea window       0.35      0.85      0.49      3741\n\n                       accuracy                           0.38     10599\n                      macro avg       0.48      0.49      0.35     10599\n                   weighted avg       0.51      0.38      0.30     10599\n",
+            "interval_note": "No independent-patient confidence interval estimated; window observations are correlated."
+          },
+          "folds": [
+            {
+              "patients": [
+                "11",
+                "14",
+                "15",
+                "20",
+                "21",
+                "26",
+                "28",
+                "8"
+              ],
+              "threshold": -0.8534350311654895,
+              "best_params": {
+                "sensor_weights__sensor_weight": 0.25,
+                "svc__C": 0.1,
+                "svc__kernel": "rbf"
+              },
+              "fit_windows": 2400,
+              "metrics": {
+                "accuracy": 0.35595732068761116,
+                "precision": 0.334575260804769,
+                "recall": 0.6988326848249027,
+                "specificity": 0.1450454763044519,
+                "f1": 0.4525069286974049,
+                "f2": 0.5738752556237219,
+                "roc_auc": 0.324556086821278,
+                "average_precision": 0.2868658488973302,
+                "confusion_matrix": [
+                  [
+                    303,
+                    1786
+                  ],
+                  [
+                    387,
+                    898
+                  ]
+                ],
+                "false_negatives": 387,
+                "false_positives": 1786,
+                "report": "                                 precision    recall  f1-score   support\n\n   No annotated breathing event       0.44      0.15      0.22      2089\nAnnotated apnea/hypopnea window       0.33      0.70      0.45      1285\n\n                       accuracy                           0.36      3374\n                      macro avg       0.39      0.42      0.34      3374\n                   weighted avg       0.40      0.36      0.31      3374\n",
+                "interval_note": "No independent-patient confidence interval estimated; window observations are correlated.",
+                "decision_threshold": -0.8534350311654895
+              }
+            },
+            {
+              "patients": [
+                "12",
+                "13",
+                "16",
+                "19",
+                "29",
+                "3",
+                "4",
+                "6"
+              ],
+              "threshold": -1.6854859285822148,
+              "best_params": {
+                "sensor_weights__sensor_weight": 1.0,
+                "svc__C": 10,
+                "svc__kernel": "rbf"
+              },
+              "fit_windows": 2368,
+              "metrics": {
+                "accuracy": 0.3786549707602339,
+                "precision": 0.33976213436194147,
+                "recall": 0.9370567375886525,
+                "specificity": 0.10383944153577661,
+                "f1": 0.4987025241802312,
+                "f2": 0.6932966023875115,
+                "roc_auc": 0.5189508218533784,
+                "average_precision": 0.3811990133631118,
+                "confusion_matrix": [
+                  [
+                    238,
+                    2054
+                  ],
+                  [
+                    71,
+                    1057
+                  ]
+                ],
+                "false_negatives": 71,
+                "false_positives": 2054,
+                "report": "                                 precision    recall  f1-score   support\n\n   No annotated breathing event       0.77      0.10      0.18      2292\nAnnotated apnea/hypopnea window       0.34      0.94      0.50      1128\n\n                       accuracy                           0.38      3420\n                      macro avg       0.55      0.52      0.34      3420\n                   weighted avg       0.63      0.38      0.29      3420\n",
+                "interval_note": "No independent-patient confidence interval estimated; window observations are correlated.",
+                "decision_threshold": -1.6854859285822148
+              }
+            },
+            {
+              "patients": [
+                "1",
+                "10",
+                "2",
+                "22",
+                "24",
+                "27",
+                "5",
+                "9"
+              ],
+              "threshold": -1.1513160183822393,
+              "best_params": {
+                "sensor_weights__sensor_weight": 0.25,
+                "svc__C": 10,
+                "svc__kernel": "rbf"
+              },
+              "fit_windows": 2368,
+              "metrics": {
+                "accuracy": 0.402365308804205,
+                "precision": 0.3620991253644315,
+                "recall": 0.9352409638554217,
+                "specificity": 0.11667339523617279,
+                "f1": 0.5220680958385876,
+                "f2": 0.7103637611530542,
+                "roc_auc": 0.5117843193525009,
+                "average_precision": 0.34429247166140997,
+                "confusion_matrix": [
+                  [
+                    289,
+                    2188
+                  ],
+                  [
+                    86,
+                    1242
+                  ]
+                ],
+                "false_negatives": 86,
+                "false_positives": 2188,
+                "report": "                                 precision    recall  f1-score   support\n\n   No annotated breathing event       0.77      0.12      0.20      2477\nAnnotated apnea/hypopnea window       0.36      0.94      0.52      1328\n\n                       accuracy                           0.40      3805\n                      macro avg       0.57      0.53      0.36      3805\n                   weighted avg       0.63      0.40      0.31      3805\n",
+                "interval_note": "No independent-patient confidence interval estimated; window observations are correlated.",
+                "decision_threshold": -1.1513160183822393
+              }
+            }
+          ]
+        },
+        "holdout": {
+          "accuracy": 0.4559183673469388,
+          "precision": 0.41648303217276333,
+          "recall": 0.9905660377358491,
+          "specificity": 0.11497326203208556,
+          "f1": 0.5864101768538629,
+          "f2": 0.7764995891536566,
+          "roc_auc": 0.7240411888025651,
+          "average_precision": 0.5393102685069755,
+          "confusion_matrix": [
+            [
+              172,
+              1324
+            ],
+            [
+              9,
+              945
+            ]
+          ],
+          "false_negatives": 9,
+          "false_positives": 1324,
+          "report": "                                 precision    recall  f1-score   support\n\n   No annotated breathing event       0.95      0.11      0.21      1496\nAnnotated apnea/hypopnea window       0.42      0.99      0.59       954\n\n                       accuracy                           0.46      2450\n                      macro avg       0.68      0.55      0.40      2450\n                   weighted avg       0.74      0.46      0.35      2450\n",
+          "interval_note": "No independent-patient confidence interval estimated; window observations are correlated.",
+          "decision_threshold": -0.9477997057812829
+        },
+        "threshold": -0.9477997057812829,
+        "best_params": {
+          "sensor_weights__sensor_weight": 0.05,
+          "svc__C": 0.1,
+          "svc__kernel": "rbf"
+        },
+        "fit_windows": 3568
+      },
+      "combined_with_oxygen_dynamics": {
+        "features": [
+          "spo2",
+          "heart_rate",
+          "respiratory_rate",
+          "perfusion_index",
+          "spo2_min",
+          "spo2_std"
+        ],
+        "nested_development": {
+          "pooled": {
+            "accuracy": 0.6746862911595434,
+            "precision": 0.5244533466866967,
+            "recall": 0.8398823843892007,
+            "specificity": 0.5845727617381161,
+            "f1": 0.64570489108097,
+            "f2": 0.7497017418277261,
+            "roc_auc": 0.7906794329137086,
+            "average_precision": 0.6309640075634151,
+            "confusion_matrix": [
+              [
+                4009,
+                2849
+              ],
+              [
+                599,
+                3142
+              ]
+            ],
+            "false_negatives": 599,
+            "false_positives": 2849,
+            "report": "                                 precision    recall  f1-score   support\n\n   No annotated breathing event       0.87      0.58      0.70      6858\nAnnotated apnea/hypopnea window       0.52      0.84      0.65      3741\n\n                       accuracy                           0.67     10599\n                      macro avg       0.70      0.71      0.67     10599\n                   weighted avg       0.75      0.67      0.68     10599\n",
+            "interval_note": "No independent-patient confidence interval estimated; window observations are correlated."
+          },
+          "folds": [
+            {
+              "patients": [
+                "11",
+                "14",
+                "15",
+                "20",
+                "21",
+                "26",
+                "28",
+                "8"
+              ],
+              "threshold": -0.5499864108087444,
+              "best_params": {
+                "sensor_weights__sensor_weight": 0.05,
+                "svc__C": 1,
+                "svc__kernel": "rbf"
+              },
+              "fit_windows": 2400,
+              "metrics": {
+                "accuracy": 0.6656787196206283,
+                "precision": 0.5393878575012544,
+                "recall": 0.8365758754863813,
+                "specificity": 0.5605552896122546,
+                "f1": 0.6558877364246491,
+                "f2": 0.753539885041357,
+                "roc_auc": 0.755351824360696,
+                "average_precision": 0.5949529386458883,
+                "confusion_matrix": [
+                  [
+                    1171,
+                    918
+                  ],
+                  [
+                    210,
+                    1075
+                  ]
+                ],
+                "false_negatives": 210,
+                "false_positives": 918,
+                "report": "                                 precision    recall  f1-score   support\n\n   No annotated breathing event       0.85      0.56      0.67      2089\nAnnotated apnea/hypopnea window       0.54      0.84      0.66      1285\n\n                       accuracy                           0.67      3374\n                      macro avg       0.69      0.70      0.67      3374\n                   weighted avg       0.73      0.67      0.67      3374\n",
+                "interval_note": "No independent-patient confidence interval estimated; window observations are correlated.",
+                "decision_threshold": -0.5499864108087444
+              }
+            },
+            {
+              "patients": [
+                "12",
+                "13",
+                "16",
+                "19",
+                "29",
+                "3",
+                "4",
+                "6"
+              ],
+              "threshold": -0.9273602481875077,
+              "best_params": {
+                "sensor_weights__sensor_weight": 0.05,
+                "svc__C": 1,
+                "svc__kernel": "rbf"
+              },
+              "fit_windows": 2368,
+              "metrics": {
+                "accuracy": 0.6535087719298246,
+                "precision": 0.4870395634379263,
+                "recall": 0.949468085106383,
+                "specificity": 0.5078534031413613,
+                "f1": 0.6438232642019838,
+                "f2": 0.7979436745641484,
+                "roc_auc": 0.8656984515985297,
+                "average_precision": 0.6995159626031512,
+                "confusion_matrix": [
+                  [
+                    1164,
+                    1128
+                  ],
+                  [
+                    57,
+                    1071
+                  ]
+                ],
+                "false_negatives": 57,
+                "false_positives": 1128,
+                "report": "                                 precision    recall  f1-score   support\n\n   No annotated breathing event       0.95      0.51      0.66      2292\nAnnotated apnea/hypopnea window       0.49      0.95      0.64      1128\n\n                       accuracy                           0.65      3420\n                      macro avg       0.72      0.73      0.65      3420\n                   weighted avg       0.80      0.65      0.66      3420\n",
+                "interval_note": "No independent-patient confidence interval estimated; window observations are correlated.",
+                "decision_threshold": -0.9273602481875077
+              }
+            },
+            {
+              "patients": [
+                "1",
+                "10",
+                "2",
+                "22",
+                "24",
+                "27",
+                "5",
+                "9"
+              ],
+              "threshold": -0.6668708310768495,
+              "best_params": {
+                "sensor_weights__sensor_weight": 0.25,
+                "svc__C": 0.1,
+                "svc__kernel": "rbf"
+              },
+              "fit_windows": 2368,
+              "metrics": {
+                "accuracy": 0.7017082785808147,
+                "precision": 0.5536409116175653,
+                "recall": 0.75,
+                "specificity": 0.6758175211949939,
+                "f1": 0.6370322993284298,
+                "f2": 0.7003234425537899,
+                "roc_auc": 0.792550500751492,
+                "average_precision": 0.6386960706594491,
+                "confusion_matrix": [
+                  [
+                    1674,
+                    803
+                  ],
+                  [
+                    332,
+                    996
+                  ]
+                ],
+                "false_negatives": 332,
+                "false_positives": 803,
+                "report": "                                 precision    recall  f1-score   support\n\n   No annotated breathing event       0.83      0.68      0.75      2477\nAnnotated apnea/hypopnea window       0.55      0.75      0.64      1328\n\n                       accuracy                           0.70      3805\n                      macro avg       0.69      0.71      0.69      3805\n                   weighted avg       0.74      0.70      0.71      3805\n",
+                "interval_note": "No independent-patient confidence interval estimated; window observations are correlated.",
+                "decision_threshold": -0.6668708310768495
+              }
+            }
+          ]
+        },
+        "holdout": {
+          "accuracy": 0.7412244897959184,
+          "precision": 0.6151079136690647,
+          "recall": 0.8962264150943396,
+          "specificity": 0.642379679144385,
+          "f1": 0.7295221843003413,
+          "f2": 0.8211678832116789,
+          "roc_auc": 0.8570387560398659,
+          "average_precision": 0.7433492825027949,
+          "confusion_matrix": [
+            [
+              961,
+              535
+            ],
+            [
+              99,
+              855
+            ]
+          ],
+          "false_negatives": 99,
+          "false_positives": 535,
+          "report": "                                 precision    recall  f1-score   support\n\n   No annotated breathing event       0.91      0.64      0.75      1496\nAnnotated apnea/hypopnea window       0.62      0.90      0.73       954\n\n                       accuracy                           0.74      2450\n                      macro avg       0.76      0.77      0.74      2450\n                   weighted avg       0.79      0.74      0.74      2450\n",
+          "interval_note": "No independent-patient confidence interval estimated; window observations are correlated.",
+          "decision_threshold": -0.7106841769831378
+        },
+        "threshold": -0.7106841769831378,
+        "best_params": {
+          "sensor_weights__sensor_weight": 0.05,
+          "svc__C": 0.1,
+          "svc__kernel": "rbf"
+        },
+        "fit_windows": 3568
+      }
+    },
+    "quality": {
+      "holdout": {
+        "eligible_windows": 2450,
+        "abstained_windows": 872,
+        "coverage": 0.7375075255869958,
+        "all_positive_windows": 1206,
+        "abstained_positive_windows": 252,
+        "positive_window_coverage": 0.7910447761194029
+      },
+      "all_patients": {
+        "eligible_windows": 13049,
+        "abstained_windows": 2959,
+        "coverage": 0.8151549225387307,
+        "all_positive_windows": 5699,
+        "abstained_positive_windows": 1004,
+        "positive_window_coverage": 0.8238287418845411
+      }
+    },
+    "context_only": {
+      "sleep_duration": "User-authorized context only. Not recorded in OSASUD; not an estimator input or learned risk effect."
+    },
+    "sensor_transfer_note": "Source HR/RR are clinical monitor/ECG-derived scalar quantities; transfer to optical/wearable estimators is unvalidated.",
+    "evaluation_note": "These patients and the fixed evaluation split were previously examined. Results are exploratory; no new external validation.",
+    "baselines": {
+      "all_negative_accuracy": 0.6106122448979592,
+      "all_positive_recall": 1.0,
+      "all_positive_precision": 0.3893877551020408
+    },
+    "limitations": [
+      "Only 30 stroke-unit patients; samples within a patient are correlated.",
+      "Actual sleep duration, age, BMI, and steps are not jointly available in this file.",
+      "No synthetic clinical fields or cross-dataset row joins were used.",
+      "Window-level scores cannot confirm or exclude whether a person has sleep apnea."
+    ]
+  },
+  "feature_bounds": {
+    "spo2": [
+      73.38333333333334,
+      100.0
+    ],
+    "heart_rate": [
+      40.583333333333336,
+      131.7
+    ],
+    "respiratory_rate": [
+      6.083333333333333,
+      26.6
+    ],
+    "perfusion_index": [
+      0.2618333333333333,
+      17.48166666666667
+    ],
+    "spo2_min": [
+      63.0,
+      100.0
+    ],
+    "spo2_std": [
+      0.0,
+      13.136579548049111
+    ]
+  },
+  "model_id": "b498cd5cac66c9d4"
+}

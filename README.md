@@ -1,83 +1,90 @@
-# SleepSense · Combined IoT sleep apnea screening
+# SleepSense · Combined IoT screening
 
-**One form → one SVM → one screening result.**
+One interface, six sensor parameters, optional sleep-duration context, and one **Predict** action.
 
-Enter these four jointly recorded measurements:
+| Field | Role |
+| --- | --- |
+| Average SpO₂ (%) | Trained sensor input |
+| Lowest SpO₂ (%) | Trained sensor input |
+| SpO₂ standard deviation (percentage points) | Trained sensor input |
+| Heart rate (bpm) | Trained sensor input |
+| Breathing rate (breaths/min) | Trained sensor input |
+| Perfusion index (%) | Trained sensor input |
+| Sleep duration (hours) | **Context only; not yet trained** |
 
-| Input | Unit | Possible IoT source |
-| --- | --- | --- |
-| SpO₂ | % | Optical pulse oximeter |
-| Heart rate | bpm | Optical pulse sensor |
-| Breathing rate | breaths/min | Suitable wearable respiratory sensor |
-| Perfusion index | % | Optical pulse oximeter / validated PPG processing |
+The original four sensor quantities remain in one SVM. Lowest oxygen and oxygen variability preserve information lost by reducing the signal to an average. All six sensor summaries must cover the **same completed 60-second interval**. An IoT companion calculates the summary statistics from valid samples; a single awake spot reading is not equivalent.
 
-Use **averages from the same completed 60-second measurement period**, ideally recorded during sleep. All four values are required and enter the same scaler and SVM. No separate oxygen-only mode or lifestyle model selection is presented in the main app.
+Sleep duration is included as context at the user's explicit selection because the verified dataset does not contain actual sleep duration jointly with these sensors and apnea labels. It is saved with the result and explicitly excluded from the trained feature vector. No sleep value is invented or substituted with total recording length.
 
-The result is **Positive screening result** or **Negative screening result**. Missing/invalid measurements are rejected, and unsupported values produce **Unable to assess**. A positive screen is not a diagnosis, and a negative screen does not rule out sleep apnea.
-
-**Current limitation:** the combined model is not reliable for health decisions. Its exploratory six-patient evaluation produced 52.7% accuracy and 20.8% sensitivity. The application displays this limitation prominently. Combining more scalar measurements did not improve performance on the available dataset.
+The main page contains parameter fields and Predict only. There are no model selectors, example toggles, histories, metrics panels, or download controls.
 
 ## Run
 
-Tested with Python 3.12:
+Tested on Linux with Python 3.12:
 
 ```bash
 python -m venv .venv
 source .venv/bin/activate
 python -m pip install -r requirements.lock
-python combined.py train
+python predictor.py train
 streamlit run ui.py
 ```
 
-Training downloads the pinned 6.4 MB public Kaggle file if needed, verifies its SHA-256, and writes `models/combined_svm.joblib` plus a readable report. No training runs when a user submits measurements.
+Training downloads the pinned public Kaggle file if needed, verifies its SHA-256, and saves `models/predictor_svm.joblib` and `models/predictor_svm.report.json`. Training never occurs on application startup or a user request.
 
-CLI prediction:
+CLI:
 
 ```bash
-python combined.py predict --spo2 97 --heart-rate 65 \
-  --respiratory-rate 16 --perfusion-index 3.5
+python predictor.py predict --spo2 97 --spo2-min 95 --spo2-std 0.8 \
+  --heart-rate 65 --respiratory-rate 16 --perfusion-index 3.5 \
+  --sleep-duration 7
 ```
 
-The main UI contains four numeric fields and a **Predict** button. Example measurements are explicitly labelled. Reports, measured performance, and session history are available in expanders. Submitted measurements are kept in server-side session memory; the application does not write them to a database.
+All six sensor parameters are required. Sleep duration is optional context. Missing or invalid readings are rejected; readings outside training support receive **Unable to assess** instead of a false negative.
 
-## Dataset and measurement provenance
+Results are **positive or negative screening signals**, not confirmation or exclusion of sleep apnea.
 
-The model uses [OSASUD on Kaggle](https://www.kaggle.com/datasets/menes97/osasud-sleep-apnea-original-parquet), a format-converted mirror of the [published OSASUD dataset](https://doi.org/10.1038/s41597-022-01272-y). The [original publisher's data](https://doi.org/10.6084/m9.figshare.19214289.v1) is CC0.
+## Performance improvement
 
-SpO₂, HR, respiratory rate, and perfusion index are recorded together, with patient IDs, timestamps, and expert respiratory-event annotations. The training code never joins unrelated lifestyle rows or invents missing sensor measurements.
+Patient-separated nested development validation refits scaling, model selection, and threshold selection inside each outer training fold. The threshold targets 85% recall on out-of-fold development predictions; it is never selected using evaluation labels.
 
-The **physiological quantities** are available to IoT devices, but the source HR/RR scalars were measured by clinical monitors using ECG-derived methods. No EEG or ECG waveform is a model input. Porting measurement methods to optical pulse and wearable respiration requires validation on the eventual device.
+| Metric | Previous four-average model | Updated six-input model | Updated nested development |
+| --- | ---: | ---: | ---: |
+| Accuracy | 52.7% | **74.1%** | 67.5% |
+| Sensitivity / recall | 20.8% | **89.6%** | 84.0% |
+| Specificity | 73.0% | **64.2%** | 58.5% |
+| Precision | 32.9% | **61.5%** | 52.4% |
+| F1 | 0.254 | **0.730** | 0.646 |
+| ROC AUC | 0.436 | **0.857** | 0.791 |
 
-Age, BMI, steps, and sleep duration are omitted because they are not recorded jointly in this dataset; the user selected the supported joint sensor inputs for this combined form.
+The fixed six-patient evaluation has 2,450 usable windows. The updated predictor missed **99/954 positive usable windows** and falsely flagged **535/1,496 negative usable windows**. Increased sensitivity comes with more false alarms.
 
-## What the model actually predicts
+Signal-quality coverage is **73.8%**. Another 872 windows, including 252 positive windows, were unusable. Across all positive windows including quality exclusions, 855/1,206 (70.9%) were flagged. Unusable data is insufficient evidence, never a negative result.
 
-The training label means **at least one annotated apnea/hypopnea second occurred in the same 60-second interval**. It includes obstructive, central, mixed apnea, and hypopnea. It does not establish person-level OSA diagnosis, count events, calculate AHI, estimate severity, or predict future events.
+This cohort and evaluation split had already been examined in prior development. These are **exploratory research results, not new external or clinical validation**. Thousands of windows from six patients are not thousands of independent patients. The earlier lifestyle model's higher score used a different task/data and its original split shared duplicate profiles; that score does not establish clinical reliability.
 
-A spot reading while awake is not equivalent to the training interval and cannot establish normal breathing throughout a night.
+See [the reliability update](docs/reliability-update.md) and [full measured report](docs/predictor-evaluation.json).
 
-Each training channel needs at least 90% valid one-second samples, with no missing run longer than five seconds. No normal values are substituted for missing readings. For device integration, compute all four means from the same usable interval.
+## Why sleep duration is not trained yet
 
-## Measured performance
+[OSASUD's verified Kaggle mirror](https://www.kaggle.com/datasets/menes97/osasud-sleep-apnea-original-parquet) contains real matched oxygen, pulse, breathing-rate and perfusion measurements with respiratory-event annotations. It has no sleep-stage export or actual time-asleep column.
 
-The fixed split has 24 development patients and six evaluation patients. Tuning and nested CV keep patients separate and refit scaling inside folds.
+The larger Kaggle candidates inspected were synthetic, missing required measurements, or lacked verified clinical provenance. We do not generate oxygen/sleep values, join unrelated patients, use AHI/diagnosis as an input, or equate time recorded with time asleep to produce a higher accuracy number.
 
-| Metric | Combined model | SpO₂-mean-only control on the same usable windows |
-| --- | ---: | ---: |
-| Accuracy | 52.7% | 70.4% |
-| Sensitivity | 20.8% | 63.6% |
-| Specificity | 73.0% | 74.8% |
-| Precision | 32.9% | 61.7% |
-| F1 | 0.254 | 0.626 |
-| ROC AUC | 0.436 | 0.723 |
+To learn sleep duration's contribution, obtain recordings with actual sleep duration and these sensor summaries measured for the same participants, with independent apnea labels. An input field alone cannot create that relationship.
 
-There are 2,450 usable evaluation windows, with 73.8% coverage. The combined model missed 756 of 954 positive usable windows. An additional 252 positive windows failed quality requirements. These observations are clustered within six patients, not thousands of independent patients.
+## Dataset and device limitations
 
-This cohort and split were previously inspected in the oxygen-only study. The combined model's evaluation is **exploratory**, not new external validation. Nested development sensitivity was also low at 25.0%, so the problem is not confined to one evaluation split.
+- Original data: [OSASUD publication](https://doi.org/10.1038/s41597-022-01272-y), [publisher's CC0 data](https://doi.org/10.6084/m9.figshare.19214289.v1).
+- Pinned Kaggle scalar file: 6,338,669 bytes, SHA-256 `6a685bac8a65bd52f986ab8d66547f49d73082d7555250f4e54d69c00a8a44b9`.
+- Only 30 stroke-unit patients; generalization to home screening and other populations is unestablished.
+- The label is any annotated apnea/hypopnea second in the 60-second interval, including central/mixed events; it is not a person-level OSA diagnosis or severity.
+- Clinical-monitor HR/RR scalars were measured using ECG-derived methods. No EEG/ECG waveform is an input. Optical pulse and wearable respiration estimates need validation against those reference quantities.
+- Each source channel requires at least 90% valid samples and no missing run longer than five seconds. No normal values replace absent data.
+- Mean, minimum and standard deviation are calculated only from valid oxygen readings in the current interval; no future readings or label fields enter features.
+- Ancillary sensors retain a nonzero learned scale chosen by inner patient-group validation. More fields are not assumed to be more predictive.
 
-The full measured report is [docs/combined-evaluation.json](docs/combined-evaluation.json). There is no demonstrated performance improvement from combining these four scalar averages. Better matched training data and/or richer overnight measurements are necessary before making a dependable screening claim.
-
-The previous lifestyle SVM and oxygen-pattern SVM remain available as historical research baselines in code. Their prediction tasks, inputs, and sample units differ from this simple form. Their higher percentages are not valid performance claims for the combined predictor.
+Raw recordings and generated artifacts are excluded from Git. Only load trusted local model files; joblib/pickle can execute code. The web app accepts numeric parameters, never uploaded model artifacts.
 
 ## Device API
 
@@ -86,46 +93,44 @@ export APNEA_API_KEY="$(python -c 'import secrets; print(secrets.token_urlsafe(3
 uvicorn api:app --host 127.0.0.1 --port 8000 --no-access-log
 ```
 
-The main combined predictor is:
+Primary endpoint:
 
 ```http
-POST /v2/screen
+POST /v3/screen
 Authorization: Bearer <your key>
 Content-Type: application/json
 
 {
   "spo2": 97,
+  "spo2_min": 95,
+  "spo2_std": 0.8,
   "heart_rate": 65,
   "respiratory_rate": 16,
-  "perfusion_index": 3.5
+  "perfusion_index": 3.5,
+  "sleep_duration": 7
 }
 ```
 
-`GET /v2/model` returns its report. `GET /health` is public. Strict schema validation and the 16 KB request limit apply. Use `APNEA_COMBINED_MODEL_PATH` to override the artifact location.
+The response includes `context` and `context_not_used_by_model` to preserve the sleep-duration distinction. `GET /v3/model` returns the model report. `GET /health` is public. Authentication, strict numeric validation, and a 16 KB body limit apply. Use `APNEA_PREDICTOR_PATH` for a custom artifact.
 
-The legacy `/v1/screen` lifestyle and `/v1/oximetry/screen` research routes remain for compatibility, independent of the main form. They return 503 if their optional artifacts are absent.
+Historical `/v1` and `/v2` routes remain for research compatibility and return 503 when their optional artifacts are not installed. The default container installs only the current predictor, avoiding unnecessary baseline training.
 
 ## Verify and deploy
 
+For the full historical regression suite:
+
 ```bash
 python -m pip install -r requirements-dev.txt
-# Historical artifacts are needed for the complete research regression suite:
 python app.py train
 python sensor.py download
 python sensor.py train
 python combined.py train
+python predictor.py train
 python test.py
 ```
 
-Tests cover the joint input contract, shared training/inference transformation, every input reaching the same estimator, invalid measurements, sampling quality, API authentication, and the single-form UI, alongside the historical model checks.
+Tests verify the six-feature contract, required measurements, genuinely separate sleep context, patient isolation, development-only operating threshold, shared API/UI inference, invalid readings, and compatibility with historical models.
 
-The [Dockerfile](Dockerfile) trains artifacts explicitly at build time and serves the combined form by default. The [Render Blueprint](render.yaml) retains manual redeploys. Hosting is not clinical validation. See [deployment notes](docs/deployment.md).
+The [Dockerfile](Dockerfile) explicitly trains the current predictor during build. Its unprivileged process uses the host-assigned port and a health check. [Render configuration](render.yaml) retains manual redeploys. Hosting is not medical validation.
 
-## Research history
-
-- [Oxygen-only dataset selection and experiment](docs/dataset-selection.md)
-- [Original oxygen-pattern report](docs/osasud-evaluation.json)
-- [Source verification and license](docs/datasets/osasud-source.json)
-- [IoT validation roadmap](docs/iot-roadmap.md)
-
-Raw Kaggle files and generated model artifacts remain excluded from Git. Only load model files you trust; joblib/pickle can execute code. The app never accepts uploaded model files.
+Historical experiment reports remain in [docs](docs/reliability-update.md). They are not alternative modes in the main interface.

@@ -79,7 +79,7 @@ def average_sensor_window(signals):
     return build_combined_features(averages), quality
 
 
-def prepare_combined_windows(path=RAW_PATH):
+def prepare_combined_windows(path=RAW_PATH, include_dynamics=False):
     if hashlib.sha256(Path(path).read_bytes()).hexdigest() != EXPECTED_SHA256:
         raise ValueError("Use the pinned Kaggle dataset; checksum mismatch.")
     data = pd.read_parquet(path, columns=["patient", "timestamp_datetime", "event", *COLUMNS.values()])
@@ -107,8 +107,14 @@ def prepare_combined_windows(path=RAW_PATH):
                 count["abstained_windows"] += 1
                 count["abstained_positive_windows"] += y
                 continue
-            rows.append({"patient": str(patient), "start_second": start, "target": y,
-                         **features.iloc[0].to_dict()})
+            row = {"patient": str(patient), "start_second": start, "target": y,
+                   **features.iloc[0].to_dict()}
+            if include_dynamics:
+                oxygen = signals["spo2"][start:start + WINDOW_SECONDS]
+                valid = np.isfinite(oxygen) & (oxygen >= LIMITS["spo2"][0]) & (oxygen <= LIMITS["spo2"][1])
+                row["spo2_min"] = float(oxygen[valid].min())
+                row["spo2_std"] = float(oxygen[valid].std())
+            rows.append(row)
             count["eligible_windows"] += 1
         audit.append(count)
     return pd.DataFrame(rows), pd.DataFrame(audit)

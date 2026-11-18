@@ -13,6 +13,7 @@ from src.pipeline import MODEL_PATH, load_model, predict
 from src.oximetry import (SENSOR_DISCLAIMER, SENSOR_MODEL_PATH, load_sensor_model,
                           predict_window)
 from src.combined import COMBINED_MODEL_PATH, load_combined_model, predict_combined
+from src.predictor import PREDICTOR_PATH, load_predictor, predict as predict_current
 
 MAX_REQUEST_BYTES = 16_384
 
@@ -44,6 +45,13 @@ class CombinedInput(BaseModel):
     perfusion_index: float = Field(ge=0.01, le=30)
 
 
+class PredictorInput(CombinedInput):
+    spo2_min: float = Field(ge=1, le=100)
+    spo2_std: float = Field(ge=0, le=50)
+    sleep_duration: float | None = Field(default=None, ge=0.5, le=16,
+        description="Context only; not a trained feature.")
+
+
 async def validated_body(request, schema):
     if request.headers.get("content-type", "").split(";")[0].strip().lower() != "application/json":
         raise HTTPException(415, "Use application/json.")
@@ -60,7 +68,7 @@ async def validated_body(request, schema):
         raise HTTPException(422, detail=details) from error
 
 
-def create_app(model_path=None, api_key=None, sensor_model_path=None, combined_model_path=None):
+def create_app(model_path=None, api_key=None, sensor_model_path=None, combined_model_path=None, predictor_path=None):
     bearer = HTTPBearer(auto_error=False)
 
     @asynccontextmanager
@@ -75,11 +83,13 @@ def create_app(model_path=None, api_key=None, sensor_model_path=None, combined_m
         application.state.sensor_bundle = load_sensor_model(sensor_path) if sensor_path.is_file() else None
         combined_path = Path(combined_model_path or os.environ.get("APNEA_COMBINED_MODEL_PATH", COMBINED_MODEL_PATH))
         application.state.combined_bundle = load_combined_model(combined_path) if combined_path.is_file() else None
-        if application.state.bundle is None and application.state.combined_bundle is None:
-            raise RuntimeError("No screening model is installed. Run python combined.py train.")
+        current_path = Path(predictor_path or os.environ.get("APNEA_PREDICTOR_PATH", PREDICTOR_PATH))
+        application.state.predictor = load_predictor(current_path) if current_path.is_file() else None
+        if application.state.bundle is None and application.state.combined_bundle is None and application.state.predictor is None:
+            raise RuntimeError("No screening model is installed. Run python predictor.py train.")
         yield
 
-    application = FastAPI(title="Sleep Apnea Screening Prototype", version="3.0.0", lifespan=lifespan,
+    application = FastAPI(title="Sleep Apnea Screening Prototype", version="4.0.0", lifespan=lifespan,
                           description="Research screening only; no apnea diagnosis or real-time event detection.")
 
     def authenticate(request: Request,
@@ -90,7 +100,7 @@ def create_app(model_path=None, api_key=None, sensor_model_path=None, combined_m
 
     @application.get("/health")
     def health(request: Request):
-        bundle = request.app.state.combined_bundle or request.app.state.bundle
+        bundle = request.app.state.predictor or request.app.state.combined_bundle or request.app.state.bundle
         return {"status": "ready", "model_id": bundle["metadata"]["model_id"]}
 
     def legacy_bundle(request):
@@ -126,6 +136,26 @@ def create_app(model_path=None, api_key=None, sensor_model_path=None, combined_m
     async def combined_screen(request: Request):
         record = await validated_body(request, CombinedInput)
         return predict_combined(combined_bundle(request), record.model_dump())
+
+    def current_predictor(request):
+        if request.app.state.predictor is None:
+            raise HTTPException(503, "Current predictor is not installed.")
+        return request.app.state.predictor
+
+    @application.get("/v3/model", dependencies=[Depends(authenticate)])
+    def current_model_card(request: Request):
+        return current_predictor(request)["metadata"]
+
+    @application.post("/v3/screen", dependencies=[Depends(authenticate)], openapi_extra={
+        "requestBody": {"required": True, "content": {
+            "application/json": {"schema": PredictorInput.model_json_schema()}}}
+    })
+    async def current_screen(request: Request):
+        record = await validated_body(request, PredictorInput)
+        try:
+            return predict_current(current_predictor(request), record.model_dump(exclude_none=True))
+        except ValueError as error:
+            raise HTTPException(422, detail=str(error)) from error
 
     def oxygen_bundle(request):
         bundle = request.app.state.sensor_bundle

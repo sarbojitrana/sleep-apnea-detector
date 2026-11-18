@@ -68,7 +68,7 @@ The lifestyle SVM's 90.5% holdout accuracy cannot be compared as a ranking: it p
 
 ## Application and device format
 
-This report describes the historical oxygen-only experiment. The main dashboard now presents one combined form with SpO₂, pulse, breathing rate, and perfusion index; its separate measured results are in [combined-evaluation.json](combined-evaluation.json). The oxygen-pattern artifact remains available through the research CLI/API. No model trains on a user request.
+This report describes the historical oxygen-only experiment. The main dashboard now uses the six-sensor-summary predictor with sleep duration explicitly separated as context; see [the current reliability update](reliability-update.md) and [predictor-evaluation.json](predictor-evaluation.json). The original four-average experiment is preserved in [combined-evaluation.json](combined-evaluation.json). Historical artifacts remain available through research CLI/API routes when installed. No model trains on a user request.
 
 Upload a CSV with exactly these columns:
 

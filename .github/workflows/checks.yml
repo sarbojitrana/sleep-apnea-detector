@@ -16,4 +16,5 @@ jobs:
       - run: python sensor.py download
       - run: python sensor.py train
       - run: python combined.py train
+      - run: python predictor.py train
       - run: python test.py
